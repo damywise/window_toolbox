@@ -154,11 +154,210 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
       SWP_NOZORDER | SWP_NOACTIVATE,
     );
   }
+
+  /// Sets the window's uniform alpha (translucency).
+  ///
+  /// [alpha] ranges from 0.0 (fully transparent) to 1.0 (fully opaque).
+  /// Adds the `WS_EX_LAYERED` extended style and calls
+  /// `SetLayeredWindowAttributes` with `LWA_ALPHA`.
+  ///
+  /// The entire window (including its content) becomes uniformly
+  /// translucent. This is NOT per-pixel alpha — for true see-through
+  /// backgrounds, ensure the Flutter widget tree uses transparent
+  /// backgrounds (`MaterialApp(color: Colors.transparent)`, etc.).
+  ///
+  /// On Windows 11 the DWM Mica/acrylic backdrop will show through.
+  /// Pair with [enableCustomWindow] for a frameless, transparent
+  /// window.
+  void setWindowAlpha(double alpha) {
+    final hwnd = HWND(windowHandle);
+    final clamped = alpha.clamp(0.0, 1.0);
+    final bAlpha = (clamped * 255).round();
+
+    final exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+    SetLayeredWindowAttributes(hwnd, COLORREF(0), bAlpha, LWA_ALPHA);
+  }
+
+  /// Removes the `WS_EX_LAYERED` extended style, restoring opaque
+  /// rendering. Inverse of [setWindowAlpha].
+  void disableWindowAlpha() {
+    final hwnd = HWND(windowHandle);
+    final exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle & ~WS_EX_LAYERED);
+  }
+
+  /// Makes the window frameless (no title bar, no system border, no shadow).
+  ///
+  /// Must be called after [enableCustomWindow]. Subsequent calls are no-ops.
+  ///
+  /// On Windows this strips the system title bar via WM_NCCALCSIZE returning 0
+  /// and removes the DWM shadow.
+  void setAsFrameless() {
+    if (windowHandle.address == 0) return;
+    final hwnd = HWND(windowHandle);
+
+    final rect = ffi.calloc<RECT>();
+    GetWindowRect(hwnd, rect);
+    SetWindowPos(
+      hwnd,
+      null,
+      rect.ref.left,
+      rect.ref.top,
+      rect.ref.right - rect.ref.left,
+      rect.ref.bottom - rect.ref.top,
+      SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+    );
+    ffi.calloc.free(rect);
+
+    final margins = ffi.calloc<MARGINS>();
+    margins.ref.cxLeftWidth = -1;
+    margins.ref.cxRightWidth = -1;
+    margins.ref.cyTopHeight = -1;
+    margins.ref.cyBottomHeight = -1;
+    DwmExtendFrameIntoClientArea(hwnd, margins);
+    ffi.calloc.free(margins);
+
+    enableTransparentGradient(hwnd);
+  }
+
+  /// Configures the window as a tool-options dialog: titleless while
+  /// retaining the visible frame border, with no non-client-area gap.
+  ///
+  /// Strips `WS_CAPTION` / `WS_SYSMENU` and handles `WM_NCCALCSIZE`
+  /// (returning 0 to make the entire window the client area, eliminating
+  /// the titlebar gap). Keeps `WS_THICKFRAME` for the DWM shadow/border.
+  /// Call [applyDialogFrame] afterwards to extend the DWM glass frame
+  /// and trigger a frame recalculation.
+  ///
+  /// On other platforms this is a no-op.
+  void configureAsToolDialog() {
+    if (windowHandle.address == 0) return;
+    final hwnd = HWND(windowHandle);
+
+    if (_configuredAsToolDialog.add(hwnd.address)) {
+      addWindowsMessageHandler((windowHandle, message, wParam, lParam) {
+        if (message == WM_NCCALCSIZE && wParam == 1) {
+          return 0;
+        }
+        if (message == WM_NCACTIVATE) {
+          return DefWindowProc(
+            windowHandle,
+            WM_NCACTIVATE,
+            WPARAM(wParam),
+            LPARAM(-1),
+          );
+        }
+        if (message == WM_DESTROY) {
+          _configuredAsToolDialog.remove(windowHandle.address);
+        }
+        return null;
+      });
+    }
+
+    final style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
+    final newStyle =
+        (style & ~WS_CAPTION & ~WS_SYSMENU) |
+        WS_THICKFRAME |
+        WS_CLIPCHILDREN |
+        WS_CLIPSIBLINGS;
+    SetWindowLongPtr(hwnd, GWL_STYLE, newStyle);
+  }
+
+  /// Applies pending style changes with `SetWindowPos(…SWP_FRAMECHANGED)`.
+  /// Must be called outside any Flutter frame callback to avoid
+  /// re-entrant scheduler assertions.
+  void applyDialogFrame() {
+    if (windowHandle.address == 0) return;
+    final hwnd = HWND(windowHandle);
+
+    final margins = ffi.calloc<MARGINS>();
+    margins.ref.cxLeftWidth = -1;
+    margins.ref.cxRightWidth = -1;
+    margins.ref.cyTopHeight = -1;
+    margins.ref.cyBottomHeight = -1;
+    DwmExtendFrameIntoClientArea(hwnd, margins);
+    ffi.calloc.free(margins);
+
+    SetWindowPos(
+      hwnd,
+      null,
+      0, 0, 0, 0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+    );
+  }
+}
+
+/// Provides additional utilities for [TooltipWindowControllerWin32].
+///
+/// Tooltip windows are created by the engine and managed via the
+/// [TooltipWindowController] API, which intentionally exposes only a
+/// minimal surface (position, constraints, destroy). This extension
+/// adds commonly-needed Win32 affordances — transparent backdrop,
+/// show, and hide.
+extension TooltipControllerWin32Extension on TooltipWindowControllerWin32 {
+  /// Enables per-pixel transparent backdrop on this tooltip window.
+  ///
+  /// Extends the DWM glass frame into the entire client area and enables the
+  /// DWM transparent gradient. Flutter pixels painted as transparent (e.g.
+  /// the area outside a rounded `BoxDecoration`) composite directly over
+  /// the desktop.
+  ///
+  /// Must be called after the window's backing HWND is available (i.e.
+  /// after the [TooltipWindowController] factory constructor returns).
+  void enableTransparentBackdrop() {
+    if (windowHandle.address == 0) return;
+    final hwnd = HWND(windowHandle);
+
+    final rect = ffi.calloc<RECT>();
+    GetWindowRect(hwnd, rect);
+    SetWindowPos(
+      hwnd,
+      null,
+      rect.ref.left,
+      rect.ref.top,
+      rect.ref.right - rect.ref.left,
+      rect.ref.bottom - rect.ref.top,
+      SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+    );
+    ffi.calloc.free(rect);
+
+    final margins = ffi.calloc<MARGINS>();
+    margins.ref.cxLeftWidth = -1;
+    margins.ref.cxRightWidth = -1;
+    margins.ref.cyTopHeight = -1;
+    margins.ref.cyBottomHeight = -1;
+    DwmExtendFrameIntoClientArea(hwnd, margins);
+    ffi.calloc.free(margins);
+
+    enableTransparentGradient(hwnd);
+  }
+
+  /// Makes the window visible without activating it.
+  ///
+  /// The tooltip's anchor position is preserved; only the visibility
+  /// state is changed. Use this after [hideWindow] (or any other
+  /// operation that called `ShowWindow` with `SW_HIDE`).
+  void showWindow() {
+    ShowWindow(HWND(windowHandle), SW_SHOWNOACTIVATE);
+  }
+
+  /// Hides the window without destroying it.
+  ///
+  /// Unlike moving the window offscreen (which leaves it interactive
+  /// at the new position), this removes the window from the screen
+  /// entirely. The window's position is preserved — call [showWindow]
+  /// to reveal it again at the same location.
+  void hideWindow() {
+    ShowWindow(HWND(windowHandle), SW_HIDE);
+  }
 }
 
 //
 // Implementation details.
 //
+
+final _configuredAsToolDialog = <int>{};
 
 final _subclassState = <int, _WindowControllerWin32Private>{};
 

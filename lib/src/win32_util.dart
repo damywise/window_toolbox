@@ -76,3 +76,85 @@ final int Function(Pointer<Void>) GetDpiForWindow = DynamicLibrary.process()
       Uint32 Function(Pointer<Void>),
       int Function(Pointer<Void>)
     >('FlutterDesktopGetDpiForHWND');
+
+// ============================================================================
+// Transparency via SetWindowCompositionAttribute (undocumented API)
+// ============================================================================
+
+const int WCA_ACCENT_POLICY = 19;
+const int ACCENT_DISABLED = 0;
+const int ACCENT_ENABLE_TRANSPARENTGRADIENT = 2;
+const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+const int ACCENT_ENABLE_HOSTBACKDROP = 5;
+
+final _user32 = DynamicLibrary.open('user32.dll');
+final _setWindowCompositionAttribute = _user32.lookupFunction<
+  Int32 Function(Pointer, Pointer),
+  int Function(Pointer, Pointer)
+>('SetWindowCompositionAttribute');
+
+final class _AccentPolicyStruct extends Struct {
+  @Uint32()
+  external int accentState;
+
+  @Uint32()
+  external int accentFlags;
+
+  @Uint32()
+  external int gradientColor;
+
+  @Uint32()
+  external int animationId;
+}
+
+final class _WindowCompositionAttribDataStruct extends Struct {
+  @Uint32()
+  external int attrib;
+
+  external Pointer<Void> pvData;
+
+  @Size()
+  external int cbData;
+}
+
+/// Enables DWM transparent gradient on the given window.
+///
+/// This uses the undocumented `SetWindowCompositionAttribute` Win32 API
+/// with `WCA_ACCENT_POLICY` and `AccentState = ACCENT_ENABLE_TRANSPARENTGRADIENT`
+/// to enable per-pixel alpha through the DWM composition engine.
+///
+/// Combined with `DwmExtendFrameIntoClientArea({-1,-1,-1,-1})`, this
+/// makes the Flutter content's transparent areas show the desktop behind.
+///
+/// Returns true on success, false on failure.
+bool enableTransparentGradient(HWND hwnd) {
+  return _applyAccentPolicy(hwnd, ACCENT_ENABLE_TRANSPARENTGRADIENT);
+}
+
+/// Disables DWM transparent gradient on the given window (restores opaque).
+bool disableTransparentGradient(HWND hwnd) {
+  return _applyAccentPolicy(hwnd, ACCENT_DISABLED);
+}
+
+bool _applyAccentPolicy(HWND hwnd, int accentState) {
+  final accent = calloc<_AccentPolicyStruct>();
+  accent.ref.accentState = accentState;
+  accent.ref.accentFlags = 2;
+  accent.ref.gradientColor = 0;
+  accent.ref.animationId = 0;
+
+  final data = calloc<_WindowCompositionAttribDataStruct>();
+  data.ref.attrib = WCA_ACCENT_POLICY;
+  data.ref.pvData = accent.cast();
+  data.ref.cbData = sizeOf<_AccentPolicyStruct>();
+
+  try {
+    return _setWindowCompositionAttribute(
+      hwnd.cast(),
+      data.cast(),
+    ) != 0;
+  } finally {
+    calloc.free(data);
+    calloc.free(accent);
+  }
+}

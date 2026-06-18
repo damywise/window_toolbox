@@ -11,6 +11,9 @@ import 'dart:ffi' hide Size;
 import 'win32_util.dart';
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
+const int WM_NCUAHDRAWCAPTION = 0x00AE;
+const int WM_NCUAHDRAWFRAME = 0x00AF;
+
 class SubclassState {
   bool needRearmMouseTracker = false;
 }
@@ -117,37 +120,28 @@ class CustomWindowWin32 extends CustomWindow {
       >('FlutterDesktopGetDpiForHWND');
 
   static void _makeWindowUndecorated(HWND hwnd) {
-    SetWindowLongPtr(
-      hwnd,
-      GWL_STYLE,
-      WS_THICKFRAME |
-          WS_CAPTION |
-          WS_SYSMENU |
-          WS_MAXIMIZEBOX |
-          WS_MINIMIZEBOX |
-          WS_OVERLAPPED,
-    );
+    final rect = malloc<RECT>();
+    GetWindowRect(hwnd, rect);
     SetWindowPos(
       hwnd,
       null,
-      0,
-      0,
-      0,
-      0,
-      SWP_FRAMECHANGED |
-          SWP_NOMOVE |
-          SWP_NOSIZE |
-          SWP_NOZORDER |
-          SWP_NOACTIVATE,
+      rect.ref.left,
+      rect.ref.top,
+      rect.ref.right - rect.ref.left,
+      rect.ref.bottom - rect.ref.top,
+      SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
     );
+    malloc.free(rect);
 
-    // final margins = malloc<MARGINS>();
-    // margins.ref.cxLeftWidth = -1;
-    // margins.ref.cxRightWidth = -1;
-    // margins.ref.cyTopHeight = -1;
-    // margins.ref.cyBottomHeight = -1;
-    // DwmExtendFrameIntoClientArea(hwnd, margins);
-    // malloc.free(margins);
+    final margins = malloc<MARGINS>();
+    margins.ref.cxLeftWidth = -1;
+    margins.ref.cxRightWidth = -1;
+    margins.ref.cyTopHeight = -1;
+    margins.ref.cyBottomHeight = -1;
+    DwmExtendFrameIntoClientArea(hwnd, margins);
+    malloc.free(margins);
+
+    enableTransparentGradient(hwnd);
   }
 
   final _dragExcludeRects = <BuildContext, Rect>{};
@@ -205,32 +199,26 @@ class CustomWindowWin32 extends CustomWindow {
         break;
       case WM_ERASEBKGND:
         return 0;
+      case WM_NCPAINT:
+        return 0;
+      case WM_NCACTIVATE:
+        return 1;
       case WM_SIZE:
         // This would cause Flutter relayout with a very small size.
         if (wParam == SIZE_MINIMIZED) return 0;
         break;
       case WM_NCCALCSIZE:
         if (wParam == 1) {
-          final dpi = _getDpiForWindow(windowHandle.cast());
-          int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi).value;
-          int borderLR =
-              GetSystemMetricsForDpi(SM_CXFRAME, dpi).value + padding;
-          int borderTB =
-              GetSystemMetricsForDpi(SM_CYFRAME, dpi).value + padding;
           final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
           final rect = params.ref.rgrc[0];
-          double scale = dpi / 96.0;
           if (IsZoomed(_hwnd)) {
-            rect.top += borderTB;
+            _adjustNCCalcSize(params);
           } else {
-            // Otherwise we miss one pixel from top.
-            rect.top += (1 * scale).round();
+            rect.top += 1;
           }
-          rect.left += borderLR;
-          rect.right -= borderLR;
-          rect.bottom -= borderTB;
           return 0;
         }
+        break;
       case WM_NCHITTEST:
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
@@ -346,8 +334,27 @@ class CustomWindowWin32 extends CustomWindow {
           SendMessage(_flutterView, WM_MOUSELEAVE, WPARAM(0), LPARAM(0));
         }
         return 0;
+      case WM_NCUAHDRAWCAPTION:
+      case WM_NCUAHDRAWFRAME:
+        return 0;
     }
     return null;
+  }
+
+  void _adjustNCCalcSize(Pointer<NCCALCSIZE_PARAMS> params) {
+    final rectPtr = params.cast<RECT>();
+    final monitor = MonitorFromRect(rectPtr, MONITOR_DEFAULTTONEAREST);
+    final monitorInfo = calloc<MONITORINFO>()..ref.cbSize = sizeOf<MONITORINFO>();
+    if (monitor.isValid) {
+      GetMonitorInfo(monitor, monitorInfo);
+    }
+    final l = params.ref.rgrc[0].left - monitorInfo.ref.rcWork.left;
+    final t = params.ref.rgrc[0].top - monitorInfo.ref.rcWork.top;
+    params.ref.rgrc[0].left -= l;
+    params.ref.rgrc[0].top -= t;
+    params.ref.rgrc[0].right += l;
+    params.ref.rgrc[0].bottom += t;
+    calloc.free(monitorInfo);
   }
 
   @override
