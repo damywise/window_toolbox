@@ -102,9 +102,12 @@ class _StretchReproState extends State<StretchRepro> {
                 child: ColoredBox(
                   color: Colors.white,
                   child: Center(
-                    child: ElevatedButton(
-                      onPressed: () => _showDialog(WindowRegistry.of(context)),
-                      child: const Text('Show Dialog'),
+                    child: Builder(
+                      builder: (context) => ElevatedButton(
+                        onPressed: () =>
+                            _showDialog(WindowRegistry.of(context)),
+                        child: const Text('Show Dialog'),
+                      ),
                     ),
                   ),
                 ),
