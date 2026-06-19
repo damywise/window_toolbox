@@ -82,7 +82,6 @@ int _subclassProc(
 class CustomWindowWin32 extends CustomWindow {
   CustomWindowWin32(this.controller, {required this.onClose}) {
     controller.addWindowsMessageHandler(handleWindowsMessage);
-    _makeWindowUndecorated(_hwnd);
     _flutterView = _findFlutterView();
     SetWindowSubclass(
       _flutterView,
@@ -90,11 +89,19 @@ class CustomWindowWin32 extends CustomWindow {
       0,
       0,
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _framelessActive = true;
+      _makeWindowUndecorated(_hwnd);
+    });
   }
 
   final VoidCallback onClose;
 
   late final HWND _flutterView;
+  bool _framelessActive = false;
+
+  static const int _wmNcUahDrawCaption = 0x00AE;
+  static const int _wmNcUahDrawFrame = 0x00AF;
 
   HWND _findFlutterView() {
     final className = "FlutterView".toNativeUtf16();
@@ -148,6 +155,33 @@ class CustomWindowWin32 extends CustomWindow {
     // margins.ref.cyBottomHeight = -1;
     // DwmExtendFrameIntoClientArea(hwnd, margins);
     // malloc.free(margins);
+  }
+
+  /// Compensates for off-screen borders when maximized. See window_manager's
+  /// adjustNCCALCSIZE and MonitorFromRect vs MonitorFromWindow notes.
+  static void _adjustNccalcsizeForMaximized(Pointer<NCCALCSIZE_PARAMS> params) {
+    var leftInset = 8;
+    var topInset = 8;
+
+    final frameRect = params.ref.rgrc[0];
+    final frameRectPtr = calloc<RECT>();
+    frameRectPtr.ref = frameRect;
+    final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
+    calloc.free(frameRectPtr);
+    if (monitor != 0) {
+      final monitorInfo = calloc<MONITORINFO>();
+      monitorInfo.ref.cbSize = sizeOf<MONITORINFO>();
+      if (GetMonitorInfo(monitor, monitorInfo) != 0) {
+        leftInset = frameRect.left - monitorInfo.ref.rcWork.left;
+        topInset = frameRect.top - monitorInfo.ref.rcWork.top;
+      }
+      calloc.free(monitorInfo);
+    }
+
+    frameRect.top += topInset;
+    frameRect.left += leftInset;
+    frameRect.bottom -= leftInset;
+    frameRect.right -= leftInset;
   }
 
   final _dragExcludeRects = <BuildContext, Rect>{};
@@ -210,27 +244,30 @@ class CustomWindowWin32 extends CustomWindow {
         if (wParam == SIZE_MINIMIZED) return 0;
         break;
       case WM_NCCALCSIZE:
-        if (wParam == 1) {
-          final dpi = _getDpiForWindow(windowHandle.cast());
-          int padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi).value;
-          int borderLR =
-              GetSystemMetricsForDpi(SM_CXFRAME, dpi).value + padding;
-          int borderTB =
-              GetSystemMetricsForDpi(SM_CYFRAME, dpi).value + padding;
-          final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
-          final rect = params.ref.rgrc[0];
-          double scale = dpi / 96.0;
+        if (wParam == 1 && _framelessActive) {
           if (IsZoomed(_hwnd)) {
-            rect.top += borderTB;
-          } else {
-            // Otherwise we miss one pixel from top.
-            rect.top += (1 * scale).round();
+            final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
+            _adjustNccalcsizeForMaximized(params);
           }
-          rect.left += borderLR;
-          rect.right -= borderLR;
-          rect.bottom -= borderTB;
           return 0;
         }
+        break;
+      case WM_NCACTIVATE:
+        if (_framelessActive) {
+          return DefWindowProc(
+            windowHandle,
+            WM_NCACTIVATE,
+            WPARAM(wParam & 0xFFFF),
+            LPARAM(lParam),
+          );
+        }
+        break;
+      case _wmNcUahDrawCaption:
+      case _wmNcUahDrawFrame:
+        if (_framelessActive) {
+          return 0;
+        }
+        break;
       case WM_NCHITTEST:
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
@@ -245,18 +282,16 @@ class CustomWindowWin32 extends CustomWindow {
         final height = (rect.ref.bottom - rect.ref.top) / scale;
         malloc.free(rect);
 
-        // sides and bottom are extended through WM_NCCALCSIZE
         const edgeSize = 1;
-        const topEdgeSize = 3; // 1px from WM_NCCALCSIZE + 3px
 
         if (_maximizeButtonRects.values.any((r) => r.contains(Offset(x, y)))) {
           return HTMAXBUTTON;
         }
 
-        if (y < topEdgeSize) {
-          if (x < topEdgeSize) {
+        if (y < edgeSize) {
+          if (x < edgeSize) {
             return HTTOPLEFT;
-          } else if (x > width - topEdgeSize) {
+          } else if (x > width - edgeSize) {
             return HTTOPRIGHT;
           } else {
             return HTTOP;

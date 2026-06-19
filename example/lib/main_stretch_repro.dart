@@ -12,9 +12,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/src/widgets/_window.dart';
-import 'package:flutter/src/widgets/_window_win32.dart';
 import 'package:window_toolbox/window_toolbox.dart';
-import 'package:window_toolbox_example/win32_stretch_repro.dart';
 
 void main() {
   runWidget(const StretchRepro());
@@ -48,9 +46,10 @@ class _StretchReproState extends State<StretchRepro> {
   }
 
   void _showDialog(WindowRegistry registry) {
+    const dialogSize = Size(224, 160);
     late final WindowEntry entry;
     final controller = DialogWindowController(
-      preferredSize: const Size(224, 160),
+      preferredSize: dialogSize,
       title: 'Dialog',
       delegate: _DialogDelegate(
         onDestroyed: () => registry.unregister(entry),
@@ -60,15 +59,8 @@ class _StretchReproState extends State<StretchRepro> {
       controller: controller,
       builder: (context) => const _DialogView(),
     );
+    controller.enableCustomWindow();
     registry.register(entry);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller is WindowControllerWin32) {
-        final win32 = controller as WindowControllerWin32;
-        configureDialogFrameless(win32);
-        Future.microtask(() => applyDialogFrameless(win32));
-      }
-    });
   }
 
   @override
@@ -137,17 +129,22 @@ class _DialogView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       type: MaterialType.transparency,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xE62D2D2D),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white24),
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          '224×160',
-          style: TextStyle(color: Colors.white, fontSize: 24),
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xE62D2D2D),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white24),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '${constraints.maxWidth.toStringAsFixed(0)}×'
+              '${constraints.maxHeight.toStringAsFixed(0)}',
+              style: const TextStyle(color: Colors.white, fontSize: 24),
+            ),
+          );
+        },
       ),
     );
   }

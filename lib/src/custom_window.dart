@@ -10,6 +10,12 @@ import 'custom_window_linux.dart';
 
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
+/// Platform window chrome customization backing [enableCustomWindow].
+///
+/// Native chrome removal differs by platform:
+/// - **Win32:** full native frame removed (borders and title bar).
+/// - **macOS:** title bar hidden via full-size content view; native frame remains.
+/// - **Linux:** full decorations removed via GTK.
 abstract class CustomWindow {
   static CustomWindow? forController(BaseWindowController controller) {
     return _expando[controller];
