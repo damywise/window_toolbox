@@ -1,8 +1,8 @@
 // Standalone repro entry point — upstream example/lib/main.dart is unchanged.
 //
-// Secondary dialog window content appears stretched on Windows when spawned
-// from a frameless transparent main window. Win32 setup is inlined in
-// win32_stretch_repro.dart (no package/lib changes required).
+// Secondary DialogWindowController content appears stretched on Windows after
+// configureDialogAsToolWindow() (titleless Win32 dialog with WM_NCCALCSIZE → 0).
+// Main window uses normal custom chrome; no frameless/transparent setup.
 //
 // Run: fvm flutter run -d windows lib/main_stretch_repro.dart
 //
@@ -39,11 +39,6 @@ class _StretchReproState extends State<StretchRepro> {
       delegate: _MainDelegate(),
     );
     _main.enableCustomWindow();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_main is WindowControllerWin32) {
-        configureMainWindowFrameless(_main as WindowControllerWin32);
-      }
-    });
   }
 
   @override
@@ -82,12 +77,7 @@ class _StretchReproState extends State<StretchRepro> {
       controller: _main,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        builder: (_, child) => ColoredBox(
-          color: Colors.transparent,
-          child: child,
-        ),
         home: Scaffold(
-          backgroundColor: Colors.transparent,
           body: Column(
             children: [
               WindowDragArea(
@@ -146,7 +136,6 @@ class _DialogView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      type: MaterialType.transparency,
       child: Container(
         color: const Color(0xFF2D2D2D),
         alignment: Alignment.center,
