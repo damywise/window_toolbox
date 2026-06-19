@@ -134,7 +134,6 @@ class _DialogView extends StatelessWidget {
           return Container(
             decoration: BoxDecoration(
               color: const Color(0xE62D2D2D),
-              borderRadius: BorderRadius.circular(8),
               border: Border.all(color: Colors.white24),
             ),
             alignment: Alignment.center,
