@@ -90,8 +90,12 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _framelessActive = true;
-      _makeWindowUndecorated(_hwnd);
+      // SetWindowPos must not run inside a frame callback: it synchronously
+      // dispatches Win32 messages that re-enter the Flutter scheduler.
+      Future.microtask(() {
+        _framelessActive = true;
+        _makeWindowUndecorated(_hwnd);
+      });
     });
   }
 
