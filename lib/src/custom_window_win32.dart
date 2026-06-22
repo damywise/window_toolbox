@@ -100,6 +100,7 @@ class CustomWindowWin32 extends CustomWindow {
     ShowWindow(_hwnd, SW_SHOW);
     controller.compensateFramelessContentSize();
     controller.updateSize();
+    _enableTransparentBackdrop(_hwnd);
   }
 
   final VoidCallback onClose;
@@ -130,6 +131,36 @@ class CustomWindowWin32 extends CustomWindow {
         int Function(Pointer<Void>)
       >('FlutterDesktopGetDpiForHWND');
 
+  static const int _wcaAccentPolicy = 19;
+  static const int _accentEnableTransparentGradient = 2;
+
+  static final int Function(Pointer, Pointer) _setWindowCompositionAttribute =
+      DynamicLibrary.open('user32.dll').lookupFunction<
+        Int32 Function(Pointer, Pointer),
+        int Function(Pointer, Pointer)
+      >('SetWindowCompositionAttribute');
+
+  static void _enableTransparentBackdrop(HWND hwnd) {
+    // Per-pixel transparency is driven by the accent policy alone.
+    // DwmExtendFrameIntoClientArea(-1) conflicts with frameless WM_NCCALCSIZE
+    // handling and restores visible non-client chrome.
+    final accent = calloc<_AccentPolicy>();
+    accent.ref.accentState = _accentEnableTransparentGradient;
+    accent.ref.accentFlags = 2;
+
+    final data = calloc<_WindowCompositionAttribData>();
+    data.ref.attrib = _wcaAccentPolicy;
+    data.ref.pvData = accent.cast();
+    data.ref.cbData = sizeOf<_AccentPolicy>();
+
+    try {
+      _setWindowCompositionAttribute(hwnd.cast(), data.cast());
+    } finally {
+      calloc.free(data);
+      calloc.free(accent);
+    }
+  }
+
   static void _makeWindowUndecorated(HWND hwnd) {
     var style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
     style |=
@@ -153,14 +184,6 @@ class CustomWindowWin32 extends CustomWindow {
           SWP_NOZORDER |
           SWP_NOACTIVATE,
     );
-
-    // final margins = malloc<MARGINS>();
-    // margins.ref.cxLeftWidth = -1;
-    // margins.ref.cxRightWidth = -1;
-    // margins.ref.cyTopHeight = -1;
-    // margins.ref.cyBottomHeight = -1;
-    // DwmExtendFrameIntoClientArea(hwnd, margins);
-    // malloc.free(margins);
   }
 
   /// Compensates for off-screen borders when maximized. See window_manager's
@@ -260,12 +283,7 @@ class CustomWindowWin32 extends CustomWindow {
         break;
       case WM_NCACTIVATE:
         if (_framelessActive) {
-          return DefWindowProc(
-            windowHandle,
-            WM_NCACTIVATE,
-            WPARAM(wParam & 0xFFFF),
-            LPARAM(lParam),
-          );
+          return 1;
         }
         break;
       case _wmNcUahDrawCaption:
@@ -422,4 +440,28 @@ class CustomWindowWin32 extends CustomWindow {
   bool titlebarNeedsDoubleClickDetector() {
     return true;
   }
+}
+
+final class _AccentPolicy extends Struct {
+  @Uint32()
+  external int accentState;
+
+  @Uint32()
+  external int accentFlags;
+
+  @Uint32()
+  external int gradientColor;
+
+  @Uint32()
+  external int animationId;
+}
+
+final class _WindowCompositionAttribData extends Struct {
+  @Uint32()
+  external int attrib;
+
+  external Pointer<Void> pvData;
+
+  @Uint32()
+  external int cbData;
 }
