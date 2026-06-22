@@ -38,7 +38,6 @@ class _StretchReproState extends State<StretchRepro> {
       delegate: _MainDelegate(),
     );
     _main.enableCustomWindow();
-    _main.finishFramelessSetup();
   }
 
   @override
@@ -97,7 +96,7 @@ class _StretchReproState extends State<StretchRepro> {
   }) {
     entry.controller.enableCustomWindow();
     registry.register(entry);
-    entry.controller.finishFramelessSetup(
+    entry.controller.configureFramelessWindow(
       frame: frame,
       transparentBackdrop: transparentBackdrop,
     );

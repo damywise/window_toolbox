@@ -1,10 +1,11 @@
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
-import 'package:flutter/widgets.dart';
+import 'dart:ui' show Rect, Size;
 import 'dart:ffi' as ffi;
 
 import 'package:win32/win32.dart';
 import 'package:ffi/ffi.dart' as ffi;
 import 'win32_util.dart';
+import 'win32_frameless_setup.dart';
 
 /// Provides additional delegate methods for [WindowControllerWin32].
 ///
@@ -45,19 +46,6 @@ typedef Win32MessageHandler =
       int lParam,
     );
 
-/// Returns [contentLogical] plus the Win32 non-client overflow that Flutter's
-/// initial window sizing includes via `AdjustWindowRectExForDpi`.
-Size preferredSizeIncludingNonClient(
-  Size contentLogical,
-  double devicePixelRatio,
-) {
-  final nc = win32StandardNonClientOverflow(devicePixelRatio);
-  return Size(
-    contentLogical.width + nc.width,
-    contentLogical.height + nc.height,
-  );
-}
-
 extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// Register a Win32 specific delegate to this window controller.
   void addDelegate(WindowDelegateWin32 delegate) {
@@ -86,34 +74,31 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// Corrects the window size after [enableCustomWindow] eliminates the
   /// non-client area via [WM_NCCALCSIZE].
   ///
-  /// Flutter sizes the window frame using `AdjustWindowRectExForDpi`, which
-  /// does not account for custom non-client handling. On secondary windows
-  /// this can stretch the Flutter view. See
-  /// https://github.com/flutter/flutter/issues/188270
+  /// Normally scheduled automatically on the first frame after
+  /// [enableCustomWindow]. Call manually only for advanced recovery scenarios.
+  /// See https://github.com/flutter/flutter/issues/188270
   void compensateFramelessContentSize() {
     compensateFramelessContentSizeForHwnd(HWND(windowHandle));
   }
 
-  /// Completes frameless window setup after [enableCustomWindow].
+  /// Configures optional frameless extras after [enableCustomWindow].
   ///
   /// Runs after the first frame (post-frame callback + microtask) so Win32
-  /// subclass procs do not re-enter the scheduler mid-draw. Corrects the client
-  /// area size, optionally sets the screen frame, and refreshes layout.
+  /// subclass procs do not re-enter the scheduler mid-draw. Optionally sets
+  /// the screen frame and enables a transparent backdrop.
   ///
-  /// Call after [WindowRegistry.register] for secondary windows.
-  void finishFramelessSetup({Rect? frame, bool transparentBackdrop = false}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.microtask(() {
-        compensateFramelessContentSize();
-        if (frame != null) {
-          setWindowFrame(frame);
-        }
-        updateSize();
-        if (transparentBackdrop) {
-          enableTransparentBackdrop();
-        }
-      });
-    });
+  /// Size correction is scheduled automatically on the first frame after
+  /// [enableCustomWindow]. Call this for transparent windows
+  /// ([transparentBackdrop]) or full-screen windows ([frame]).
+  void configureFramelessWindow({
+    Rect? frame,
+    bool transparentBackdrop = false,
+  }) {
+    scheduleWin32FramelessSetup(
+      this,
+      frame: frame,
+      transparentBackdrop: transparentBackdrop,
+    );
   }
 
   /// Enables per-pixel window transparency via the DWM accent policy.
@@ -127,19 +112,7 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// Updates the window size. This is useful when delegate implements [windowWillResizeToSize]
   /// and needs to enforce new size.
   void updateSize() {
-    final rect = ffi.malloc<RECT>();
-    GetWindowRect(HWND(windowHandle), rect);
-
-    SetWindowPos(
-      HWND(windowHandle),
-      null,
-      rect.ref.left,
-      rect.ref.top,
-      rect.ref.right - rect.ref.left,
-      rect.ref.bottom - rect.ref.top,
-      SWP_NOMOVE | SWP_NOACTIVATE,
-    );
-    ffi.malloc.free(rect);
+    refreshWindowSizeForHwnd(HWND(windowHandle));
   }
 
   /// Controls whether the window can be minimized. This disables or enables the
@@ -198,15 +171,7 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// The window frame includes the non-client area (title bar and borders).
   /// The origin of the coordinate system is top left corner of the primary display.
   void setWindowFrame(Rect frame) {
-    SetWindowPos(
-      HWND(windowHandle),
-      null,
-      frame.left.round(),
-      frame.top.round(),
-      frame.width.round(),
-      frame.height.round(),
-      SWP_NOZORDER | SWP_NOACTIVATE,
-    );
+    setWindowFrameForHwnd(HWND(windowHandle), frame);
   }
 }
 

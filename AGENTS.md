@@ -64,7 +64,7 @@ window_toolbox/
 
 All public symbols are exported from `lib/window_toolbox.dart` via four re-exports. Importing `package:window_toolbox/window_toolbox.dart` provides:
 
-The `enableCustomWindow()` and `finishFramelessSetup()` methods are provided by the `CustomWindowExtension` on `BaseWindowController`.
+The `enableCustomWindow()` and `configureFramelessWindow()` methods are provided by the `CustomWindowExtension` on `BaseWindowController`.
 
 ### Widgets
 
@@ -99,7 +99,7 @@ Extensions on Flutter's internal `BaseWindowController` subclasses, defined in t
 
 | Extension | Properties / Methods |
 |-----------|----------------------|
-| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `compensateFramelessContentSize`, `finishFramelessSetup`, `enableTransparentBackdrop`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize` |
+| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `compensateFramelessContentSize`, `configureFramelessWindow`, `enableTransparentBackdrop`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize` |
 | `WindowControllerMacOSExtension` | `addDelegate`, `removeDelegate`, `canMinimize` (get/set), `canClose` (get/set), `collectionBehavior` (get/set, uses `NSWindowCollectionBehavior`), `getWindowFrame`, `setWindowFrame`, `updateSize` |
 | `WindowControllerLinuxExtension` | `addDelegate`, `removeDelegate`, `getWindowState` → `WindowStateLinux` |
 
@@ -108,7 +108,6 @@ Additional enums and types:
 - `NSWindowCollectionBehavior` — bitmask with values: `defaultBehavior`, `canJoinAllSpaces`, `moveToActiveSpace`, `managed`, `transient`, `stationary`, `participatesInCycle`, `ignoresCycle`, `fullScreenPrimary`, `fullScreenAuxiliary`, `fullScreenNone`, `fullScreenAllowsTiling`, `fullScreenDisallowsTiling`, `primary`, `auxiliary`, `canJoinAllApplications`.
 - `WindowStateLinux` — decoded bitmask booleans: `withdrawn`, `iconified`, `maximized`, `sticky`, `fullscreen`, `above`, `below`, `focused`, `topTiled`, `topResizable`, `rightTiled`, `rightResizable`, `bottomTiled`, `bottomResizable`, `leftTiled`, `leftResizable`.
 - `Win32MessageHandler` — `int? Function(HWND, int message, int wParam, int lParam)`.
-- `preferredSizeIncludingNonClient(Size contentLogical, double devicePixelRatio)` — Win32 helper for `preferredSize` when Flutter's initial sizing includes non-client chrome.
 
 ## Typical usage
 
@@ -179,7 +178,8 @@ On Linux, wrap the body with `WindowBorder(cornerRadius: 12, child: ...)` for sh
 | `canClose` (get/set) | No | Yes | No |
 | `getWindowFrame` / `setWindowFrame` | Yes | Yes | No |
 | `updateSize` | Yes | Yes | No |
-| Frameless size compensation (`finishFramelessSetup`) | Yes | N/A | N/A |
+| Frameless size compensation (automatic on `enableCustomWindow`) | Yes | N/A | N/A |
+| Frameless extras (`configureFramelessWindow`: frame, transparent backdrop) | Yes | N/A | N/A |
 | Transparent backdrop (`enableTransparentBackdrop`) | Yes (opt-in) | N/A | N/A |
 
 ## Testing

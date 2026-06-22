@@ -1,8 +1,8 @@
 // ignore_for_file: constant_identifier_names, non_constant_identifier_names
 
 @DefaultAsset('package:win32/win32.dart')
-import 'dart:ffi' hide Size;
-import 'dart:ui' show Size;
+import 'dart:ffi';
+import 'dart:ui' show Rect;
 
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
@@ -72,46 +72,6 @@ external int _TrackMouseEvent(Pointer<TRACKMOUSEEVENT> lpEventTrack);
 bool TrackMouseEvent(Pointer<TRACKMOUSEEVENT> lpEventTrack) =>
     _TrackMouseEvent(lpEventTrack) != FALSE;
 
-/// Non-client chrome [AdjustWindowRectExForDpi] adds for
-/// [WS_OVERLAPPEDWINDOW], in logical pixels.
-///
-/// The overflow is independent of client content size on Windows.
-Size win32StandardNonClientOverflow(double devicePixelRatio) {
-  return _nonClientOverflowForClientSize(Size.zero, devicePixelRatio);
-}
-
-/// How much [AdjustWindowRectExForDpi] expands [clientLogical] for
-/// [WS_OVERLAPPEDWINDOW], in logical pixels.
-Size _nonClientOverflowForClientSize(
-  Size clientLogical,
-  double devicePixelRatio,
-) {
-  final dpi = (devicePixelRatio * 96).round();
-  final clientW = (clientLogical.width * devicePixelRatio).round();
-  final clientH = (clientLogical.height * devicePixelRatio).round();
-
-  final rect = calloc<RECT>();
-  rect.ref.left = 0;
-  rect.ref.top = 0;
-  rect.ref.right = clientW;
-  rect.ref.bottom = clientH;
-  AdjustWindowRectExForDpi(
-    rect,
-    WS_OVERLAPPEDWINDOW,
-    false,
-    WINDOW_EX_STYLE(0),
-    dpi,
-  );
-  final outerW = rect.ref.right - rect.ref.left;
-  final outerH = rect.ref.bottom - rect.ref.top;
-  calloc.free(rect);
-
-  return Size(
-    (outerW - clientW) / devicePixelRatio,
-    (outerH - clientH) / devicePixelRatio,
-  );
-}
-
 final int Function(Pointer<Void>) GetDpiForWindow = DynamicLibrary.process()
     .lookupFunction<
       Uint32 Function(Pointer<Void>),
@@ -150,6 +110,35 @@ void compensateFramelessContentSizeForHwnd(HWND hwnd) {
     clientH,
     SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
   );
+}
+
+/// Sets [hwnd]'s outer frame in screen (physical) coordinates.
+void setWindowFrameForHwnd(HWND hwnd, Rect frame) {
+  SetWindowPos(
+    hwnd,
+    null,
+    frame.left.round(),
+    frame.top.round(),
+    frame.width.round(),
+    frame.height.round(),
+    SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+  );
+}
+
+/// Re-applies the current frame so Flutter picks up client-area changes.
+void refreshWindowSizeForHwnd(HWND hwnd) {
+  final rect = calloc<RECT>();
+  GetWindowRect(hwnd, rect);
+  SetWindowPos(
+    hwnd,
+    null,
+    rect.ref.left,
+    rect.ref.top,
+    rect.ref.right - rect.ref.left,
+    rect.ref.bottom - rect.ref.top,
+    SWP_NOMOVE | SWP_NOACTIVATE,
+  );
+  calloc.free(rect);
 }
 
 const int _wcaAccentPolicy = 19;

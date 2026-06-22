@@ -3,11 +3,13 @@ export 'src/macos_extra.dart';
 export 'src/win32_extra.dart';
 export 'src/linux_extra.dart';
 
-import 'src/custom_window.dart';
-import 'src/win32_extra.dart';
 import 'dart:ui' show Rect;
+
 import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
+
+import 'src/custom_window.dart';
+import 'src/win32_extra.dart';
 
 extension CustomWindowExtension on BaseWindowController {
   /// Enables window customization features for this window.
@@ -22,12 +24,17 @@ extension CustomWindowExtension on BaseWindowController {
     CustomWindow.init(this);
   }
 
-  /// Completes frameless setup on Win32 after [enableCustomWindow].
+  /// Configures optional Win32 frameless extras after [enableCustomWindow].
   ///
-  /// No-op on other platforms. See [WindowControllerWin32Extension.finishFramelessSetup].
-  void finishFramelessSetup({Rect? frame, bool transparentBackdrop = false}) {
+  /// No-op on other platforms. Size correction is scheduled automatically on
+  /// the first frame. Pass [frame] and/or set [transparentBackdrop] for
+  /// transparent or full-screen windows.
+  void configureFramelessWindow({
+    Rect? frame,
+    bool transparentBackdrop = false,
+  }) {
     if (this is WindowControllerWin32) {
-      (this as WindowControllerWin32).finishFramelessSetup(
+      (this as WindowControllerWin32).configureFramelessWindow(
         frame: frame,
         transparentBackdrop: transparentBackdrop,
       );

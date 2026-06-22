@@ -15,6 +15,8 @@ controller = RegularWindowController(...);
 controller.enableCustomWindow();
 ```
 
+On Windows, `enableCustomWindow()` schedules frameless size correction automatically after the first frame. For transparent or full-screen windows, also call `configureFramelessWindow(transparentBackdrop: true)` and optionally pass a screen `frame` in physical pixels.
+
 Once that is done, you can place various widgets in your widget tree to build draggable areas, traffic light buttons (macOS) or window buttons:
 
 - `WindowDragArea` - Widget that creates area that can be used to drag the window.

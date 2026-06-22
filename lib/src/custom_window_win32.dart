@@ -4,6 +4,7 @@ import 'package:win32/win32.dart';
 
 import 'custom_window.dart';
 import 'win32_extra.dart';
+import 'win32_frameless_setup.dart';
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 
 import 'dart:ffi' hide Size;
@@ -82,7 +83,7 @@ int _subclassProc(
 class CustomWindowWin32 extends CustomWindow {
   CustomWindowWin32(this.controller, {required this.onClose}) {
     controller.addWindowsMessageHandler(handleWindowsMessage);
-    _makeWindowUndecorated(_hwnd);
+    _ensureResizeChromeStyle(_hwnd);
 
     _flutterView = _findFlutterView();
 
@@ -93,9 +94,12 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
 
-    // SetWindowLongPtr above replaces GWL_STYLE without WS_VISIBLE; restore
-    // show state. Size correction is deferred via [finishFramelessSetup].
+    // Restore show state after style changes. Resize chrome comes from
+    // _ensureResizeChromeStyle; visual framelessness from WM_NCCALCSIZE.
+    // Client size correction is deferred to the first frame. Optional
+    // [configureFramelessWindow] arguments merge into the same deferred run.
     ShowWindow(_hwnd, SW_SHOW);
+    scheduleWin32FramelessSetup(controller);
   }
 
   final VoidCallback onClose;
@@ -125,7 +129,7 @@ class CustomWindowWin32 extends CustomWindow {
         int Function(Pointer<Void>)
       >('FlutterDesktopGetDpiForHWND');
 
-  static void _makeWindowUndecorated(HWND hwnd) {
+  static void _ensureResizeChromeStyle(HWND hwnd) {
     var style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
     style |=
         WS_THICKFRAME |
@@ -238,6 +242,8 @@ class CustomWindowWin32 extends CustomWindow {
         break;
       case WM_NCCALCSIZE:
         if (wParam == 1) {
+          // Non-maximized: client area is the full frame (zero NC inset).
+          // Maximized: inset to the monitor work area.
           if (IsZoomed(_hwnd)) {
             final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
             _adjustNccalcsizeForMaximized(params);
