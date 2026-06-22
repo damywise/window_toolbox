@@ -76,3 +76,37 @@ final int Function(Pointer<Void>) GetDpiForWindow = DynamicLibrary.process()
       Uint32 Function(Pointer<Void>),
       int Function(Pointer<Void>)
     >('FlutterDesktopGetDpiForHWND');
+
+/// Resizes [hwnd] to the content size Flutter intended before frameless
+/// [WM_NCCALCSIZE] handling expanded the client area to the full frame.
+///
+/// Flutter sizes the window frame with `AdjustWindowRectExForDpi`, which is
+/// unaware of custom non-client handling. Querying [WM_NCCALCSIZE] with
+/// `wParam == 0` yields the standard client rect for the current frame.
+void compensateFramelessContentSizeForHwnd(HWND hwnd) {
+  final frameRect = calloc<RECT>();
+  GetWindowRect(hwnd, frameRect);
+
+  final clientRect = calloc<RECT>();
+  clientRect.ref = frameRect.ref;
+  calloc.free(frameRect);
+
+  SendMessage(hwnd, WM_NCCALCSIZE, WPARAM(0), LPARAM(clientRect.address));
+  final clientW = clientRect.ref.right - clientRect.ref.left;
+  final clientH = clientRect.ref.bottom - clientRect.ref.top;
+  calloc.free(clientRect);
+
+  if (clientW <= 0 || clientH <= 0) {
+    return;
+  }
+
+  SetWindowPos(
+    hwnd,
+    null,
+    0,
+    0,
+    clientW,
+    clientH,
+    SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+  );
+}

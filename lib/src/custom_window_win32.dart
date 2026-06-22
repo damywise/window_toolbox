@@ -82,21 +82,24 @@ int _subclassProc(
 class CustomWindowWin32 extends CustomWindow {
   CustomWindowWin32(this.controller, {required this.onClose}) {
     controller.addWindowsMessageHandler(handleWindowsMessage);
-    _flutterView = _findFlutterView();
+    _framelessActive = true;
+    _makeWindowUndecorated(_hwnd);
+    
+    _flutterView = _findFlutterView();    
+    
     SetWindowSubclass(
       _flutterView,
       Pointer.fromFunction<SUBCLASSPROC>(_subclassProc, 0),
       0,
       0,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // SetWindowPos must not run inside a frame callback: it synchronously
-      // dispatches Win32 messages that re-enter the Flutter scheduler.
-      Future.microtask(() {
-        _framelessActive = true;
-        _makeWindowUndecorated(_hwnd);
-      });
-    });
+
+    // SetWindowLongPtr above replaces GWL_STYLE without WS_VISIBLE; restore show
+    // state and correct the frame size after WM_NCCALCSIZE expands the client
+    // area to the full frame (see flutter/flutter#188270).
+    ShowWindow(_hwnd, SW_SHOW);
+    controller.compensateFramelessContentSize();
+    controller.updateSize();
   }
 
   final VoidCallback onClose;
@@ -128,16 +131,15 @@ class CustomWindowWin32 extends CustomWindow {
       >('FlutterDesktopGetDpiForHWND');
 
   static void _makeWindowUndecorated(HWND hwnd) {
-    SetWindowLongPtr(
-      hwnd,
-      GWL_STYLE,
-      WS_THICKFRAME |
-          WS_CAPTION |
-          WS_SYSMENU |
-          WS_MAXIMIZEBOX |
-          WS_MINIMIZEBOX |
-          WS_OVERLAPPED,
-    );
+    var style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
+    style |=
+        WS_THICKFRAME |
+        WS_CAPTION |
+        WS_SYSMENU |
+        WS_MAXIMIZEBOX |
+        WS_MINIMIZEBOX |
+        WS_OVERLAPPED;
+    SetWindowLongPtr(hwnd, GWL_STYLE, style);
     SetWindowPos(
       hwnd,
       null,

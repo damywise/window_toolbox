@@ -70,6 +70,17 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
     )._messageHandlers.remove(handler);
   }
 
+  /// Corrects the window size after [enableCustomWindow] eliminates the
+  /// non-client area via [WM_NCCALCSIZE].
+  ///
+  /// Flutter sizes the window frame using `AdjustWindowRectExForDpi`, which
+  /// does not account for custom non-client handling. On secondary windows
+  /// this can stretch the Flutter view. See
+  /// https://github.com/flutter/flutter/issues/188270
+  void compensateFramelessContentSize() {
+    compensateFramelessContentSizeForHwnd(HWND(windowHandle));
+  }
+
   /// Updates the window size. This is useful when delegate implements [windowWillResizeToSize]
   /// and needs to enforce new size.
   void updateSize() {
