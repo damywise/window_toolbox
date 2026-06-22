@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart';
 import 'custom_window_macos.dart';
 import 'custom_window_win32.dart';
 import 'custom_window_linux.dart';
+import 'win32_frameless_setup.dart';
 
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
@@ -33,6 +34,26 @@ abstract class CustomWindow {
     }
   }
 
+  /// Configures optional Win32 frameless extras. No-op on other platforms.
+  ///
+  /// Pass [frame] and/or set [transparentBackdrop] for transparent,
+  /// full-screen, or engine-managed windows (e.g. tooltips). Size compensation
+  /// (shrinking the window after frameless WM_NCCALCSIZE) runs only when
+  /// [enableCustomWindow] was called — it is set automatically by that path.
+  static void configureFramelessWindow(
+    BaseWindowController controller, {
+    Rect? frame,
+    bool transparentBackdrop = false,
+  }) {
+    if (controller is WindowControllerWin32) {
+      scheduleWin32FramelessSetup(
+        controller as WindowControllerWin32,
+        frame: frame,
+        transparentBackdrop: transparentBackdrop,
+      );
+    }
+  }
+
   static final _expando = Expando<CustomWindow>('CustomWindow');
 
   static CustomWindow? _create(
@@ -50,7 +71,10 @@ abstract class CustomWindow {
         onClose: onClose,
       );
     } else if (controller is WindowControllerLinux) {
-      return CustomWindowLinux(controller as WindowControllerLinux);
+      return CustomWindowLinux(
+        controller as WindowControllerLinux,
+        onClose: onClose,
+      );
     } else {
       return null;
     }

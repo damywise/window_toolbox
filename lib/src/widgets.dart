@@ -223,8 +223,8 @@ class _CloseButtonState extends State<CloseButton> {
 
   @override
   void dispose() {
-    super.dispose();
     _buttonNode.dispose();
+    super.dispose();
   }
 }
 
@@ -274,8 +274,8 @@ class _MinimizeButtonState extends State<MinimizeButton> {
 
   @override
   void dispose() {
-    super.dispose();
     _buttonNode.dispose();
+    super.dispose();
   }
 }
 
@@ -307,14 +307,20 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
   }
 
   void _onPressed() {
-    final controller = WindowScope.of(context) as RegularWindowController;
-    controller.setMaximized(!controller.isMaximized);
+    final controller = WindowScope.of(context);
+    if (controller is RegularWindowController) {
+      controller.setMaximized(!controller.isMaximized);
+    }
   }
 
   BaseWindowController? _controller;
   bool _lastMaximized = false;
   final _buttonNode = FocusNode();
-  bool get _isMaximized => (_controller as RegularWindowController).isMaximized;
+  bool get _isMaximized {
+    final c = _controller;
+    if (c is RegularWindowController) return c.isMaximized;
+    return false;
+  }
 
   @override
   void didChangeDependencies() {
@@ -343,9 +349,9 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
 
   @override
   void dispose() {
-    super.dispose();
     _buttonNode.dispose();
     _controller?.removeListener(_controllerListener);
+    super.dispose();
   }
 
   @override
@@ -746,42 +752,33 @@ class _DragExcludeWidget extends SingleChildRenderObjectWidget {
 
 class _DragExcludeRenderObject extends RenderProxyBox {}
 
-class _DragPanGestureRecognizer extends PanGestureRecognizer {
-  _DragPanGestureRecognizer({super.debugOwner});
-
-  @override
-  void addAllowedPointer(PointerDownEvent event) {
+/// Mixin that rejects pointer events when the hit-test path includes
+/// a [_DragExcludeRenderObject], used by drag-exclude-aware recognizers.
+mixin _DragExcludeHitTestMixin on GestureRecognizer {
+  bool _isExcludedByHitTest(PointerDownEvent event) {
     final HitTestResult result = HitTestResult();
     RendererBinding.instance.hitTestInView(
       result,
       event.position,
       event.viewId,
     );
-    for (final hit in result.path) {
-      if (hit.target is _DragExcludeRenderObject) {
-        return;
-      }
+    return result.path.any((hit) => hit.target is _DragExcludeRenderObject);
+  }
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    if (!_isExcludedByHitTest(event)) {
+      super.addAllowedPointer(event);
     }
-    super.addAllowedPointer(event);
   }
 }
 
-class _DoubleTapToMaximizeGestureRecognizer extends DoubleTapGestureRecognizer {
-  _DoubleTapToMaximizeGestureRecognizer({super.debugOwner});
+class _DragPanGestureRecognizer extends PanGestureRecognizer
+    with _DragExcludeHitTestMixin {
+  _DragPanGestureRecognizer({super.debugOwner});
+}
 
-  @override
-  void addAllowedPointer(PointerDownEvent event) {
-    final HitTestResult result = HitTestResult();
-    RendererBinding.instance.hitTestInView(
-      result,
-      event.position,
-      event.viewId,
-    );
-    for (final hit in result.path) {
-      if (hit.target is _DragExcludeRenderObject) {
-        return;
-      }
-    }
-    super.addAllowedPointer(event);
-  }
+class _DoubleTapToMaximizeGestureRecognizer extends DoubleTapGestureRecognizer
+    with _DragExcludeHitTestMixin {
+  _DoubleTapToMaximizeGestureRecognizer({super.debugOwner});
 }

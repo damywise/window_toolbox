@@ -99,7 +99,7 @@ Extensions on Flutter's internal `BaseWindowController` subclasses, defined in t
 
 | Extension | Properties / Methods |
 |-----------|----------------------|
-| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `compensateFramelessContentSize`, `configureFramelessWindow`, `enableTransparentBackdrop`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize` |
+| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize` |
 | `WindowControllerMacOSExtension` | `addDelegate`, `removeDelegate`, `canMinimize` (get/set), `canClose` (get/set), `collectionBehavior` (get/set, uses `NSWindowCollectionBehavior`), `getWindowFrame`, `setWindowFrame`, `updateSize` |
 | `WindowControllerLinuxExtension` | `addDelegate`, `removeDelegate`, `getWindowState` → `WindowStateLinux` |
 
@@ -180,7 +180,6 @@ On Linux, wrap the body with `WindowBorder(cornerRadius: 12, child: ...)` for sh
 | `updateSize` | Yes | Yes | No |
 | Frameless size compensation (automatic on `enableCustomWindow`) | Yes | N/A | N/A |
 | Frameless extras (`configureFramelessWindow`: frame, transparent backdrop) | Yes | N/A | N/A |
-| Transparent backdrop (`enableTransparentBackdrop`) | Yes (opt-in) | N/A | N/A |
 
 ## Testing
 

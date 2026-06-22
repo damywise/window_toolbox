@@ -137,7 +137,8 @@ class _WindowControllerLinuxPrivate {
     _delegates.remove(delegate);
   }
 
-  List<WindowDelegateLinux> get delegates => List.of(_delegates);
+  List<WindowDelegateLinux> get delegates =>
+      List.unmodifiable(_delegates);
 
   final List<WindowDelegateLinux> _delegates = [];
 

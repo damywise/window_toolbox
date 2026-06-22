@@ -32,12 +32,9 @@ dependencies:
     sdk: flutter
 
   window_toolbox:
-    # When depending on this package from a real application you should use:
-    #   window_toolbox: ^x.y.z
-    # See https://dart.dev/tools/pub/dependencies#version-constraints
-    # The example app is bundled with the plugin so we use a path dependency on
-    # the parent directory to use the current plugin's version.
     path: ../
+
+  win32: ^6.0.1
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

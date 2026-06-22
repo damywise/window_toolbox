@@ -4,18 +4,26 @@ import 'package:flutter/widgets.dart';
 import 'custom_window.dart';
 import 'dart:ffi' as ffi;
 import 'linux.g.dart';
+import 'linux_extra.dart';
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
-class CustomWindowLinux extends CustomWindow {
-  CustomWindowLinux(this.controller) {
+class CustomWindowLinux extends CustomWindow with WindowDelegateLinux {
+  CustomWindowLinux(this.controller, {required this.onClose}) {
     cw_gtk_window_remove_decorations(
       controller.windowHandle,
       controller.flutterViewHandle,
     );
     cw_init_event_hooks_if_needed();
+    controller.addDelegate(this);
   }
 
+  final VoidCallback onClose;
   final WindowControllerLinux controller;
+
+  @override
+  void windowWillClose() {
+    onClose();
+  }
 
   @override
   void requestClose() {

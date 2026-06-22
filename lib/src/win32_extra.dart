@@ -4,8 +4,8 @@ import 'dart:ffi' as ffi;
 
 import 'package:win32/win32.dart';
 import 'package:ffi/ffi.dart' as ffi;
-import 'win32_util.dart';
 import 'win32_frameless_setup.dart';
+import 'win32_util.dart';
 
 /// Provides additional delegate methods for [WindowControllerWin32].
 ///
@@ -71,44 +71,6 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
     )._messageHandlers.remove(handler);
   }
 
-  /// Corrects the window size after [enableCustomWindow] eliminates the
-  /// non-client area via [WM_NCCALCSIZE].
-  ///
-  /// Normally scheduled automatically on the first frame after
-  /// [enableCustomWindow]. Call manually only for advanced recovery scenarios.
-  /// See https://github.com/flutter/flutter/issues/188270
-  void compensateFramelessContentSize() {
-    compensateFramelessContentSizeForHwnd(HWND(windowHandle));
-  }
-
-  /// Configures optional frameless extras after [enableCustomWindow].
-  ///
-  /// Runs after the first frame (post-frame callback + microtask) so Win32
-  /// subclass procs do not re-enter the scheduler mid-draw. Optionally sets
-  /// the screen frame and enables a transparent backdrop.
-  ///
-  /// Size correction is scheduled automatically on the first frame after
-  /// [enableCustomWindow]. Call this for transparent windows
-  /// ([transparentBackdrop]) or full-screen windows ([frame]).
-  void configureFramelessWindow({
-    Rect? frame,
-    bool transparentBackdrop = false,
-  }) {
-    scheduleWin32FramelessSetup(
-      this,
-      frame: frame,
-      transparentBackdrop: transparentBackdrop,
-    );
-  }
-
-  /// Enables per-pixel window transparency via the DWM accent policy.
-  ///
-  /// Opt-in — not applied by [enableCustomWindow]. Required for
-  /// [MaterialType.transparency] and translucent Flutter content on Win32.
-  void enableTransparentBackdrop() {
-    enableTransparentBackdropForHwnd(HWND(windowHandle));
-  }
-
   /// Updates the window size. This is useful when delegate implements [windowWillResizeToSize]
   /// and needs to enforce new size.
   void updateSize() {
@@ -156,15 +118,17 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// The origin of the coordinate system is top left corner of the primary display.
   Rect getWindowFrame() {
     final rect = ffi.malloc<RECT>();
-    GetWindowRect(HWND(windowHandle), rect);
-    final result = Rect.fromLTRB(
-      rect.ref.left.toDouble(),
-      rect.ref.top.toDouble(),
-      rect.ref.right.toDouble(),
-      rect.ref.bottom.toDouble(),
-    );
-    ffi.malloc.free(rect);
-    return result;
+    try {
+      GetWindowRect(HWND(windowHandle), rect);
+      return Rect.fromLTRB(
+        rect.ref.left.toDouble(),
+        rect.ref.top.toDouble(),
+        rect.ref.right.toDouble(),
+        rect.ref.bottom.toDouble(),
+      );
+    } finally {
+      ffi.malloc.free(rect);
+    }
   }
 
   /// Sets the window frame in screen (physical) coordinates.
@@ -363,7 +327,8 @@ class _WindowControllerWin32Private {
     _delegates.remove(delegate);
   }
 
-  List<WindowDelegateWin32> get delegates => List.of(_delegates);
+  List<WindowDelegateWin32> get delegates =>
+      List.unmodifiable(_delegates);
 
   final List<WindowDelegateWin32> _delegates = [];
 

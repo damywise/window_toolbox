@@ -40,33 +40,36 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
     WindowTrafficLightInactiveConfigration? inactiveConfigration,
   ) {
     final config = ffi.calloc<cw_traffic_light_config_t>();
-    config.ref.offset_x = offset.dx;
-    config.ref.offset_y = offset.dy;
+    try {
+      config.ref.offset_x = offset.dx;
+      config.ref.offset_y = offset.dy;
 
-    config.ref.appearanceAsInt = switch (brightness) {
-      Brightness.light => cw_appearance_t.CW_APPEARANCE_LIGHT.value,
-      Brightness.dark => cw_appearance_t.CW_APPEARANCE_DARK.value,
-      null => cw_appearance_t.CW_APPEARANCE_AUTO.value,
-    };
+      config.ref.appearanceAsInt = switch (brightness) {
+        Brightness.light => cw_appearance_t.CW_APPEARANCE_LIGHT.value,
+        Brightness.dark => cw_appearance_t.CW_APPEARANCE_DARK.value,
+        null => cw_appearance_t.CW_APPEARANCE_AUTO.value,
+      };
 
-    if (inactiveConfigration != null) {
-      config.ref.custom_inactive_traffic_light = true;
-      config.ref.inactive_background_color = inactiveConfigration
-          .backgroundColor
-          .toARGB32();
-      config.ref.inactive_border_color = inactiveConfigration.borderColor
-          .toARGB32();
-      config.ref.inactive_border_width = inactiveConfigration.borderWidth;
-      config.ref.show_as_inactive_in_key_window =
-          inactiveConfigration.showAsInactiveInKeyWindow;
-    } else {
-      config.ref.custom_inactive_traffic_light = false;
+      if (inactiveConfigration != null) {
+        config.ref.custom_inactive_traffic_light = true;
+        config.ref.inactive_background_color = inactiveConfigration
+            .backgroundColor
+            .toARGB32();
+        config.ref.inactive_border_color = inactiveConfigration.borderColor
+            .toARGB32();
+        config.ref.inactive_border_width = inactiveConfigration.borderWidth;
+        config.ref.show_as_inactive_in_key_window =
+            inactiveConfigration.showAsInactiveInKeyWindow;
+      } else {
+        config.ref.custom_inactive_traffic_light = false;
+      }
+      cw_nswindow_update_traffic_light(
+        controller.windowHandle,
+        config,
+      );
+    } finally {
+      ffi.calloc.free(config);
     }
-    cw_nswindow_update_traffic_light(
-      controller.windowHandle,
-      config,
-    );
-    ffi.calloc.free(config);
   }
 
   bool _updateScheduled = false;
@@ -80,7 +83,7 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
       final view = _draggableRects.keys.first
           .findAncestorRenderObjectOfType<RenderView>();
       if (view == null) {
-        throw StateError('Unexpectedly missing RenderView in heirarchy');
+        throw StateError('Unexpectedly missing RenderView in hierarchy');
       }
       final bounds = Offset.zero & view.size;
 
@@ -88,18 +91,22 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
       final count = invertedRects.length + _dragExcludeRects.length;
 
       final rectsPointer = ffi.malloc<cw_rect_t>(count);
-      for (final (index, rect)
-          in invertedRects.followedBy(_dragExcludeRects.values).indexed) {
-        rectsPointer[index].x = rect.left;
-        rectsPointer[index].y = rect.top;
-        rectsPointer[index].w = rect.width;
-        rectsPointer[index].h = rect.height;
+      try {
+        for (final (index, rect)
+            in invertedRects.followedBy(_dragExcludeRects.values).indexed) {
+          rectsPointer[index].x = rect.left;
+          rectsPointer[index].y = rect.top;
+          rectsPointer[index].w = rect.width;
+          rectsPointer[index].h = rect.height;
+        }
+        cw_nswindow_update_draggable_areas(
+          controller.windowHandle,
+          rectsPointer,
+          count,
+        );
+      } finally {
+        ffi.malloc.free(rectsPointer);
       }
-      cw_nswindow_update_draggable_areas(
-        controller.windowHandle,
-        rectsPointer,
-        count,
-      );
     }
   }
 

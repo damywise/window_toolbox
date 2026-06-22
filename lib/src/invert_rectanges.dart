@@ -33,9 +33,9 @@ List<Rect> invert(Rect bounds, Iterable<Rect> rectangles) {
 
     // Mark rects that ended at or before bandTop.
     // They will be pushed to the end during sorting and removed after.
-    for (int i = 0; i < active.length; ++i) {
-      if (active[i].bottom <= bandTop) {
-        active[i] = const Rect.fromLTWH(double.maxFinite, 0, 0, 0);
+    for (int j = 0; j < active.length; ++j) {
+      if (active[j].bottom <= bandTop) {
+        active[j] = const Rect.fromLTWH(double.maxFinite, 0, 0, 0);
       }
     }
 

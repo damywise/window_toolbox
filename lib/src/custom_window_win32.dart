@@ -34,18 +34,21 @@ int _subclassProc(
     HWND parentWindow = GetAncestor(HWND(hwnd), GA_ROOT);
     if (parentWindow.isNotNull) {
       final cursorPos = malloc<POINT>();
-      GetCursorPos(cursorPos);
-      final cursorPosLparam = makeLParam(cursorPos.ref.x, cursorPos.ref.y);
-      free(cursorPos);
-      final parentHitTest = SendMessage(
-        parentWindow,
-        WM_NCHITTEST,
-        WPARAM(0),
-        LPARAM(cursorPosLparam),
-      ).value;
-      if (parentHitTest == HTMAXBUTTON || parentHitTest == HTCAPTION) {
-        state.needRearmMouseTracker = true;
-        return 0;
+      try {
+        GetCursorPos(cursorPos);
+        final cursorPosLparam = makeLParam(cursorPos.ref.x, cursorPos.ref.y);
+        final parentHitTest = SendMessage(
+          parentWindow,
+          WM_NCHITTEST,
+          WPARAM(0),
+          LPARAM(cursorPosLparam),
+        ).value;
+        if (parentHitTest == HTMAXBUTTON || parentHitTest == HTCAPTION) {
+          state.needRearmMouseTracker = true;
+          return 0;
+        }
+      } finally {
+        malloc.free(cursorPos);
       }
     }
   } else if (msg == WM_NCHITTEST) {
@@ -69,12 +72,15 @@ int _subclassProc(
   } else if (msg == WM_MOUSEMOVE) {
     if (state.needRearmMouseTracker) {
       final trackMouseEvent = malloc<TRACKMOUSEEVENT>();
-      trackMouseEvent.ref.cbSize = sizeOf<TRACKMOUSEEVENT>();
-      trackMouseEvent.ref.hwndTrack = HWND(hwnd);
-      trackMouseEvent.ref.dwFlags = TME_LEAVE;
-      TrackMouseEvent(trackMouseEvent);
-      malloc.free(trackMouseEvent);
-      state.needRearmMouseTracker = false;
+      try {
+        trackMouseEvent.ref.cbSize = sizeOf<TRACKMOUSEEVENT>();
+        trackMouseEvent.ref.hwndTrack = HWND(hwnd);
+        trackMouseEvent.ref.dwFlags = TME_LEAVE;
+        TrackMouseEvent(trackMouseEvent);
+        state.needRearmMouseTracker = false;
+      } finally {
+        malloc.free(trackMouseEvent);
+      }
     }
   }
   return DefSubclassProc(HWND(hwnd), msg, WPARAM(wparam), LPARAM(lparam));
@@ -99,7 +105,7 @@ class CustomWindowWin32 extends CustomWindow {
     // Client size correction is deferred to the first frame. Optional
     // [configureFramelessWindow] arguments merge into the same deferred run.
     ShowWindow(_hwnd, SW_SHOW);
-    scheduleWin32FramelessSetup(controller);
+    scheduleWin32FramelessSetup(controller, compensateSize: true);
   }
 
   final VoidCallback onClose;
@@ -112,7 +118,7 @@ class CustomWindowWin32 extends CustomWindow {
   HWND _findFlutterView() {
     final className = "FlutterView".toNativeUtf16();
     final child = FindWindowEx(_hwnd, null, PCWSTR(className), null);
-    free(className);
+    malloc.free(className);
     if (child.value.isNull) {
       throw Exception('Could not find FlutterView child window');
     }
@@ -122,12 +128,6 @@ class CustomWindowWin32 extends CustomWindow {
   final WindowControllerWin32 controller;
 
   HWND get _hwnd => HWND(controller.windowHandle);
-
-  static final int Function(Pointer<Void>) _getDpiForWindow =
-      DynamicLibrary.process().lookupFunction<
-        Uint32 Function(Pointer<Void>),
-        int Function(Pointer<Void>)
-      >('FlutterDesktopGetDpiForHWND');
 
   static void _ensureResizeChromeStyle(HWND hwnd) {
     var style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
@@ -162,17 +162,23 @@ class CustomWindowWin32 extends CustomWindow {
 
     final frameRect = params.ref.rgrc[0];
     final frameRectPtr = calloc<RECT>();
-    frameRectPtr.ref = frameRect;
-    final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
-    calloc.free(frameRectPtr);
-    if (monitor != 0) {
-      final monitorInfo = calloc<MONITORINFO>();
-      monitorInfo.ref.cbSize = sizeOf<MONITORINFO>();
-      if (GetMonitorInfo(monitor, monitorInfo) != 0) {
-        leftInset = frameRect.left - monitorInfo.ref.rcWork.left;
-        topInset = frameRect.top - monitorInfo.ref.rcWork.top;
+    try {
+      frameRectPtr.ref = frameRect;
+      final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
+      if (!monitor.isNull) {
+        final monitorInfo = calloc<MONITORINFO>();
+        try {
+          monitorInfo.ref.cbSize = sizeOf<MONITORINFO>();
+          if (GetMonitorInfo(monitor, monitorInfo)) {
+            leftInset = frameRect.left - monitorInfo.ref.rcWork.left;
+            topInset = frameRect.top - monitorInfo.ref.rcWork.top;
+          }
+        } finally {
+          calloc.free(monitorInfo);
+        }
       }
-      calloc.free(monitorInfo);
+    } finally {
+      calloc.free(frameRectPtr);
     }
 
     frameRect.top += topInset;
@@ -260,50 +266,53 @@ class CustomWindowWin32 extends CustomWindow {
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
 
-        double scale = _getDpiForWindow(windowHandle.cast()) / 96.0;
+        double scale = flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
         double x = xClient / scale;
         double y = yClient / scale;
 
         final rect = malloc<RECT>();
-        GetClientRect(_hwnd, rect);
-        final width = (rect.ref.right - rect.ref.left) / scale;
-        final height = (rect.ref.bottom - rect.ref.top) / scale;
-        malloc.free(rect);
+        try {
+          GetClientRect(_hwnd, rect);
+          final width = (rect.ref.right - rect.ref.left) / scale;
+          final height = (rect.ref.bottom - rect.ref.top) / scale;
 
-        const edgeSize = 1;
+          const edgeSize = 1;
 
-        if (_maximizeButtonRects.values.any((r) => r.contains(Offset(x, y)))) {
-          return HTMAXBUTTON;
-        }
+          if (_maximizeButtonRects.values.any((r) => r.contains(Offset(x, y)))) {
+            return HTMAXBUTTON;
+          }
 
-        if (y < edgeSize) {
-          if (x < edgeSize) {
-            return HTTOPLEFT;
+          if (y < edgeSize) {
+            if (x < edgeSize) {
+              return HTTOPLEFT;
+            } else if (x > width - edgeSize) {
+              return HTTOPRIGHT;
+            } else {
+              return HTTOP;
+            }
+          } else if (y > height - edgeSize) {
+            if (x < edgeSize) {
+              return HTBOTTOMLEFT;
+            } else if (x > width - edgeSize) {
+              return HTBOTTOMRIGHT;
+            } else {
+              return HTBOTTOM;
+            }
+          } else if (x < edgeSize) {
+            return HTLEFT;
           } else if (x > width - edgeSize) {
-            return HTTOPRIGHT;
-          } else {
-            return HTTOP;
+            return HTRIGHT;
           }
-        } else if (y > height - edgeSize) {
-          if (x < edgeSize) {
-            return HTBOTTOMLEFT;
-          } else if (x > width - edgeSize) {
-            return HTBOTTOMRIGHT;
-          } else {
-            return HTBOTTOM;
-          }
-        } else if (x < edgeSize) {
-          return HTLEFT;
-        } else if (x > width - edgeSize) {
-          return HTRIGHT;
-        }
 
-        for (final excludeRect in _dragExcludeRects.values) {
-          if (excludeRect.contains(Offset(x, y))) {
-            return HTCLIENT;
+          for (final excludeRect in _dragExcludeRects.values) {
+            if (excludeRect.contains(Offset(x, y))) {
+              return HTCLIENT;
+            }
           }
+          return HTCLIENT;
+        } finally {
+          malloc.free(rect);
         }
-        return HTCLIENT;
       case WM_NCMOUSEMOVE:
         if (wParam == HTMAXBUTTON || wParam == HTCAPTION) {
           final (x, y) = splitLParam(lParam);
@@ -318,12 +327,15 @@ class CustomWindowWin32 extends CustomWindow {
 
           if (!_trackingMouseLeave) {
             final trackMouseEvent = malloc<TRACKMOUSEEVENT>();
-            trackMouseEvent.ref.cbSize = sizeOf<TRACKMOUSEEVENT>();
-            trackMouseEvent.ref.hwndTrack = _hwnd;
-            trackMouseEvent.ref.dwFlags = TME_LEAVE | TME_NONCLIENT;
-            TrackMouseEvent(trackMouseEvent);
-            malloc.free(trackMouseEvent);
-            _trackingMouseLeave = true;
+            try {
+              trackMouseEvent.ref.cbSize = sizeOf<TRACKMOUSEEVENT>();
+              trackMouseEvent.ref.hwndTrack = _hwnd;
+              trackMouseEvent.ref.dwFlags = TME_LEAVE | TME_NONCLIENT;
+              TrackMouseEvent(trackMouseEvent);
+              _trackingMouseLeave = true;
+            } finally {
+              malloc.free(trackMouseEvent);
+            }
           }
           return 0;
         }
@@ -356,17 +368,20 @@ class CustomWindowWin32 extends CustomWindow {
       case WM_NCMOUSELEAVE:
         _trackingMouseLeave = false;
         final cursorPos = malloc<POINT>();
-        GetCursorPos(cursorPos);
-        final cursorPosLparam = makeLParam(cursorPos.ref.x, cursorPos.ref.y);
-        free(cursorPos);
-        final flutterHitTest = SendMessage(
-          _flutterView,
-          WM_NCHITTEST,
-          WPARAM(0),
-          LPARAM(cursorPosLparam),
-        ).value;
-        if (flutterHitTest != HTCLIENT) {
-          SendMessage(_flutterView, WM_MOUSELEAVE, WPARAM(0), LPARAM(0));
+        try {
+          GetCursorPos(cursorPos);
+          final cursorPosLparam = makeLParam(cursorPos.ref.x, cursorPos.ref.y);
+          final flutterHitTest = SendMessage(
+            _flutterView,
+            WM_NCHITTEST,
+            WPARAM(0),
+            LPARAM(cursorPosLparam),
+          ).value;
+          if (flutterHitTest != HTCLIENT) {
+            SendMessage(_flutterView, WM_MOUSELEAVE, WPARAM(0), LPARAM(0));
+          }
+        } finally {
+          malloc.free(cursorPos);
         }
         return 0;
     }

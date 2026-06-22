@@ -1,15 +1,14 @@
-// Transparent floating toolbar demo with tool-option dialogs and tooltips.
+// Full transparent-toolbar demo (toolbar + tooltips + option dialogs).
+// For a minimal Win32 frameless repro, use lib/main_stretch_repro.dart instead.
 //
 // Run: fvm flutter run -d windows lib/main_transparent.dart
 //
 // ignore_for_file: invalid_use_of_internal_member, implementation_imports
 
 import 'dart:async';
-import 'dart:ffi';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart' hide CloseButton;
 import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/src/widgets/_window_macos.dart';
@@ -403,8 +402,8 @@ class TooltipService {
     _isCreated = true;
     _isWindowDestroyed = false;
 
-    if (Platform.isWindows && controller is TooltipWindowControllerWin32) {
-      _Win32TooltipWindow.configureTransparentBackdrop(controller);
+    if (Platform.isWindows) {
+      controller.configureFramelessWindow(transparentBackdrop: true);
     }
   }
 
@@ -745,66 +744,9 @@ class _Separator extends StatelessWidget {
   }
 }
 
-/// Win32 helpers for tooltip windows. Tooltip controllers are engine-managed
-/// and do not go through [enableCustomWindow], so these stay example-local.
+/// Win32 helpers for tooltip show/hide. Transparency uses
+/// [BaseWindowController.configureFramelessWindow] via the package API.
 abstract final class _Win32TooltipWindow {
-  static const _wcaAccentPolicy = 19;
-  static const _accentEnableTransparentGradient = 2;
-
-  static final _setWindowCompositionAttribute =
-      DynamicLibrary.open(
-        'user32.dll',
-      ).lookupFunction<
-        Int32 Function(Pointer, Pointer),
-        int Function(Pointer, Pointer)
-      >(
-        'SetWindowCompositionAttribute',
-      );
-
-  static void configureTransparentBackdrop(
-    TooltipWindowControllerWin32 controller,
-  ) {
-    if (controller.windowHandle.address == 0) return;
-    final hwnd = HWND(controller.windowHandle);
-
-    final rect = calloc<RECT>();
-    GetWindowRect(hwnd, rect);
-    SetWindowPos(
-      hwnd,
-      null,
-      rect.ref.left,
-      rect.ref.top,
-      rect.ref.right - rect.ref.left,
-      rect.ref.bottom - rect.ref.top,
-      SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-    );
-    calloc.free(rect);
-
-    final margins = calloc<MARGINS>();
-    margins.ref.cxLeftWidth = -1;
-    margins.ref.cxRightWidth = -1;
-    margins.ref.cyTopHeight = -1;
-    margins.ref.cyBottomHeight = -1;
-    DwmExtendFrameIntoClientArea(hwnd, margins);
-    calloc.free(margins);
-
-    final accent = calloc<_AccentPolicy>();
-    accent.ref.accentState = _accentEnableTransparentGradient;
-    accent.ref.accentFlags = 2;
-
-    final data = calloc<_WindowCompositionAttribData>();
-    data.ref.attrib = _wcaAccentPolicy;
-    data.ref.pvData = accent.cast();
-    data.ref.cbData = sizeOf<_AccentPolicy>();
-
-    try {
-      _setWindowCompositionAttribute(hwnd.cast(), data.cast());
-    } finally {
-      calloc.free(data);
-      calloc.free(accent);
-    }
-  }
-
   static void show(TooltipWindowControllerWin32 controller) {
     ShowWindow(HWND(controller.windowHandle), SW_SHOWNOACTIVATE);
   }
@@ -812,28 +754,4 @@ abstract final class _Win32TooltipWindow {
   static void hide(TooltipWindowControllerWin32 controller) {
     ShowWindow(HWND(controller.windowHandle), SW_HIDE);
   }
-}
-
-final class _AccentPolicy extends Struct {
-  @Uint32()
-  external int accentState;
-
-  @Uint32()
-  external int accentFlags;
-
-  @Uint32()
-  external int gradientColor;
-
-  @Uint32()
-  external int animationId;
-}
-
-final class _WindowCompositionAttribData extends Struct {
-  @Uint32()
-  external int attrib;
-
-  external Pointer<Void> pvData;
-
-  @Uint32()
-  external int cbData;
 }

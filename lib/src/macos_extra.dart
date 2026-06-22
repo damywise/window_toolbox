@@ -377,7 +377,8 @@ class _WindowControllerMacOSPrivate {
     _delegates.remove(delegate);
   }
 
-  List<WindowDelegateMacOS> get delegates => List.of(_delegates);
+  List<WindowDelegateMacOS> get delegates =>
+      List.unmodifiable(_delegates);
 
   final List<WindowDelegateMacOS> _delegates = [];
 
