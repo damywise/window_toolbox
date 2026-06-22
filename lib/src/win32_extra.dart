@@ -1,5 +1,5 @@
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
-import 'dart:ui' show Size, Rect;
+import 'package:flutter/widgets.dart';
 import 'dart:ffi' as ffi;
 
 import 'package:win32/win32.dart';
@@ -45,6 +45,19 @@ typedef Win32MessageHandler =
       int lParam,
     );
 
+/// Returns [contentLogical] plus the Win32 non-client overflow that Flutter's
+/// initial window sizing includes via `AdjustWindowRectExForDpi`.
+Size preferredSizeIncludingNonClient(
+  Size contentLogical,
+  double devicePixelRatio,
+) {
+  final nc = win32StandardNonClientOverflow(devicePixelRatio);
+  return Size(
+    contentLogical.width + nc.width,
+    contentLogical.height + nc.height,
+  );
+}
+
 extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// Register a Win32 specific delegate to this window controller.
   void addDelegate(WindowDelegateWin32 delegate) {
@@ -79,6 +92,36 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// https://github.com/flutter/flutter/issues/188270
   void compensateFramelessContentSize() {
     compensateFramelessContentSizeForHwnd(HWND(windowHandle));
+  }
+
+  /// Completes frameless window setup after [enableCustomWindow].
+  ///
+  /// Runs after the first frame (post-frame callback + microtask) so Win32
+  /// subclass procs do not re-enter the scheduler mid-draw. Corrects the client
+  /// area size, optionally sets the screen frame, and refreshes layout.
+  ///
+  /// Call after [WindowRegistry.register] for secondary windows.
+  void finishFramelessSetup({Rect? frame, bool transparentBackdrop = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.microtask(() {
+        compensateFramelessContentSize();
+        if (frame != null) {
+          setWindowFrame(frame);
+        }
+        updateSize();
+        if (transparentBackdrop) {
+          enableTransparentBackdrop();
+        }
+      });
+    });
+  }
+
+  /// Enables per-pixel window transparency via the DWM accent policy.
+  ///
+  /// Opt-in — not applied by [enableCustomWindow]. Required for
+  /// [MaterialType.transparency] and translucent Flutter content on Win32.
+  void enableTransparentBackdrop() {
+    enableTransparentBackdropForHwnd(HWND(windowHandle));
   }
 
   /// Updates the window size. This is useful when delegate implements [windowWillResizeToSize]

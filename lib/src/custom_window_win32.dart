@@ -82,11 +82,10 @@ int _subclassProc(
 class CustomWindowWin32 extends CustomWindow {
   CustomWindowWin32(this.controller, {required this.onClose}) {
     controller.addWindowsMessageHandler(handleWindowsMessage);
-    _framelessActive = true;
     _makeWindowUndecorated(_hwnd);
-    
-    _flutterView = _findFlutterView();    
-    
+
+    _flutterView = _findFlutterView();
+
     SetWindowSubclass(
       _flutterView,
       Pointer.fromFunction<SUBCLASSPROC>(_subclassProc, 0),
@@ -94,19 +93,14 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
 
-    // SetWindowLongPtr above replaces GWL_STYLE without WS_VISIBLE; restore show
-    // state and correct the frame size after WM_NCCALCSIZE expands the client
-    // area to the full frame (see flutter/flutter#188270).
+    // SetWindowLongPtr above replaces GWL_STYLE without WS_VISIBLE; restore
+    // show state. Size correction is deferred via [finishFramelessSetup].
     ShowWindow(_hwnd, SW_SHOW);
-    controller.compensateFramelessContentSize();
-    controller.updateSize();
-    _enableTransparentBackdrop(_hwnd);
   }
 
   final VoidCallback onClose;
 
   late final HWND _flutterView;
-  bool _framelessActive = false;
 
   static const int _wmNcUahDrawCaption = 0x00AE;
   static const int _wmNcUahDrawFrame = 0x00AF;
@@ -130,36 +124,6 @@ class CustomWindowWin32 extends CustomWindow {
         Uint32 Function(Pointer<Void>),
         int Function(Pointer<Void>)
       >('FlutterDesktopGetDpiForHWND');
-
-  static const int _wcaAccentPolicy = 19;
-  static const int _accentEnableTransparentGradient = 2;
-
-  static final int Function(Pointer, Pointer) _setWindowCompositionAttribute =
-      DynamicLibrary.open('user32.dll').lookupFunction<
-        Int32 Function(Pointer, Pointer),
-        int Function(Pointer, Pointer)
-      >('SetWindowCompositionAttribute');
-
-  static void _enableTransparentBackdrop(HWND hwnd) {
-    // Per-pixel transparency is driven by the accent policy alone.
-    // DwmExtendFrameIntoClientArea(-1) conflicts with frameless WM_NCCALCSIZE
-    // handling and restores visible non-client chrome.
-    final accent = calloc<_AccentPolicy>();
-    accent.ref.accentState = _accentEnableTransparentGradient;
-    accent.ref.accentFlags = 2;
-
-    final data = calloc<_WindowCompositionAttribData>();
-    data.ref.attrib = _wcaAccentPolicy;
-    data.ref.pvData = accent.cast();
-    data.ref.cbData = sizeOf<_AccentPolicy>();
-
-    try {
-      _setWindowCompositionAttribute(hwnd.cast(), data.cast());
-    } finally {
-      calloc.free(data);
-      calloc.free(accent);
-    }
-  }
 
   static void _makeWindowUndecorated(HWND hwnd) {
     var style = GetWindowLongPtr(hwnd, GWL_STYLE).value;
@@ -273,7 +237,7 @@ class CustomWindowWin32 extends CustomWindow {
         if (wParam == SIZE_MINIMIZED) return 0;
         break;
       case WM_NCCALCSIZE:
-        if (wParam == 1 && _framelessActive) {
+        if (wParam == 1) {
           if (IsZoomed(_hwnd)) {
             final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
             _adjustNccalcsizeForMaximized(params);
@@ -282,16 +246,10 @@ class CustomWindowWin32 extends CustomWindow {
         }
         break;
       case WM_NCACTIVATE:
-        if (_framelessActive) {
-          return 1;
-        }
-        break;
+        return 1;
       case _wmNcUahDrawCaption:
       case _wmNcUahDrawFrame:
-        if (_framelessActive) {
-          return 0;
-        }
-        break;
+        return 0;
       case WM_NCHITTEST:
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
@@ -440,28 +398,4 @@ class CustomWindowWin32 extends CustomWindow {
   bool titlebarNeedsDoubleClickDetector() {
     return true;
   }
-}
-
-final class _AccentPolicy extends Struct {
-  @Uint32()
-  external int accentState;
-
-  @Uint32()
-  external int accentFlags;
-
-  @Uint32()
-  external int gradientColor;
-
-  @Uint32()
-  external int animationId;
-}
-
-final class _WindowCompositionAttribData extends Struct {
-  @Uint32()
-  external int attrib;
-
-  external Pointer<Void> pvData;
-
-  @Uint32()
-  external int cbData;
 }
