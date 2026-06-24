@@ -66,6 +66,20 @@ All public symbols are exported from `lib/window_toolbox.dart` via four re-expor
 
 The `enableCustomWindow()` and `configureFramelessWindow()` methods are provided by the `CustomWindowExtension` on `BaseWindowController`.
 
+`enableCustomWindow()` accepts optional Win32 parameters (all no-op on macOS/Linux):
+
+| Parameter | Purpose |
+|-----------|---------|
+| `frame` | Outer window frame in screen physical pixels |
+| `transparentBackdrop` | DWM transparent effect (accent-only; compatible with overlay passthrough) |
+| `mousePassthrough` | Layered click-through (`WS_EX_LAYERED` + `WS_EX_TRANSPARENT`); scheduled ~150ms after DWM backdrop |
+| `hideFromSwitcher` | Hide from Alt+Tab (`WS_EX_TOOLWINDOW`) |
+| `alwaysOnTop` | `HWND_TOPMOST` |
+| `fullscreenCompatibleTopmost` | When `alwaysOnTop`, also apply toolwindow ex-style (drawing overlays) |
+| `hideUntilFirstFrame` | `SW_HIDE` until deferred setup completes |
+
+`setIgnoresMouseEvents(bool)` toggles layered passthrough at runtime (Win32 only).
+
 ### Widgets
 
 Defined in `lib/src/widgets.dart`. All widgets silently no-op when `enableCustomWindow()` has not been called on the controller.
@@ -99,7 +113,7 @@ Extensions on Flutter's internal `BaseWindowController` subclasses, defined in t
 
 | Extension | Properties / Methods |
 |-----------|----------------------|
-| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize` |
+| `WindowControllerWin32Extension` | `addDelegate`, `removeDelegate`, `addWindowsMessageHandler`, `removeWindowsMessageHandler`, `canMinimize` (get/set), `canMaximize` (get/set), `getWindowFrame`, `setWindowFrame`, `updateSize`, `bringToFront` |
 | `WindowControllerMacOSExtension` | `addDelegate`, `removeDelegate`, `canMinimize` (get/set), `canClose` (get/set), `collectionBehavior` (get/set, uses `NSWindowCollectionBehavior`), `getWindowFrame`, `setWindowFrame`, `updateSize` |
 | `WindowControllerLinuxExtension` | `addDelegate`, `removeDelegate`, `getWindowState` → `WindowStateLinux` |
 
@@ -179,7 +193,9 @@ On Linux, wrap the body with `WindowBorder(cornerRadius: 12, child: ...)` for sh
 | `getWindowFrame` / `setWindowFrame` | Yes | Yes | No |
 | `updateSize` | Yes | Yes | No |
 | Frameless size compensation (automatic on `enableCustomWindow`) | Yes | N/A | N/A |
-| Frameless extras (`configureFramelessWindow`: frame, transparent backdrop) | Yes | N/A | N/A |
+| Frameless extras (`enableCustomWindow` / `configureFramelessWindow`: frame, transparent backdrop, overlay chrome) | Yes | N/A | N/A |
+| Layered mouse passthrough (`mousePassthrough` / `setIgnoresMouseEvents`) | Yes | No | No |
+| Hide from Alt+Tab (`hideFromSwitcher`) | Yes | No | No |
 
 ## Testing
 

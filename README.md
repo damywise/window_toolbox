@@ -15,7 +15,23 @@ controller = RegularWindowController(...);
 controller.enableCustomWindow();
 ```
 
-On Windows, `enableCustomWindow()` schedules frameless size correction automatically after the first frame. For transparent or full-screen windows, also call `configureFramelessWindow(transparentBackdrop: true)` and optionally pass a screen `frame` in physical pixels.
+On Windows, `enableCustomWindow()` schedules frameless size correction automatically after the first frame. For transparent toolbars, pass `transparentBackdrop: true` (and optionally `frame` in physical pixels). Prefer `enableCustomWindow(...)` over a separate `configureFramelessWindow(...)` call.
+
+**Drawing overlay (fullscreen, click-through):**
+
+```dart
+controller.enableCustomWindow(
+  frame: displayFrame,
+  transparentBackdrop: true,
+  mousePassthrough: true,
+  hideFromSwitcher: true,
+  alwaysOnTop: true,
+  fullscreenCompatibleTopmost: true,
+  hideUntilFirstFrame: true,
+);
+```
+
+Toggle passthrough at runtime with `controller.setIgnoresMouseEvents(true|false)`.
 
 Once that is done, you can place various widgets in your widget tree to build draggable areas, traffic light buttons (macOS) or window buttons:
 

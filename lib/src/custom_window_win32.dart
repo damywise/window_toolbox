@@ -3,12 +3,14 @@ import 'package:flutter/widgets.dart';
 import 'package:win32/win32.dart';
 
 import 'custom_window.dart';
+import 'custom_window_init_options.dart';
 import 'win32_extra.dart';
 import 'win32_frameless_setup.dart';
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 
 import 'dart:ffi' hide Size;
 
+import 'win32_mouse_passthrough.dart';
 import 'win32_util.dart';
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
@@ -87,7 +89,11 @@ int _subclassProc(
 }
 
 class CustomWindowWin32 extends CustomWindow {
-  CustomWindowWin32(this.controller, {required this.onClose}) {
+  CustomWindowWin32(
+    this.controller, {
+    required this.onClose,
+    this._options = CustomWindowInitOptions.none,
+  }) {
     controller.addWindowsMessageHandler(handleWindowsMessage);
     _ensureResizeChromeStyle(_hwnd);
 
@@ -100,13 +106,21 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
 
-    // Restore show state after style changes. Resize chrome comes from
-    // _ensureResizeChromeStyle; visual framelessness from WM_NCCALCSIZE.
-    // Client size correction is deferred to the first frame. Optional
-    // [configureFramelessWindow] arguments merge into the same deferred run.
-    ShowWindow(_hwnd, SW_SHOW);
-    scheduleWin32FramelessSetup(controller, compensateSize: true);
+    if (_options.hideUntilFirstFrame) {
+      ShowWindow(_hwnd, SW_HIDE);
+    } else {
+      ShowWindow(_hwnd, SW_SHOW);
+    }
+
+    scheduleWin32FramelessSetupFromOptions(
+      controller,
+      _options,
+      compensateSize: true,
+      revealAfterSetup: _options.hideUntilFirstFrame,
+    );
   }
+
+  final CustomWindowInitOptions _options;
 
   final VoidCallback onClose;
 
@@ -230,6 +244,10 @@ class CustomWindowWin32 extends CustomWindow {
 
   bool _trackingMouseLeave = false;
 
+  void setIgnoresMouseEvents(bool ignores) {
+    setIgnoresMouseEventsForHwnd(_hwnd, ignores);
+  }
+
   int? handleWindowsMessage(
     HWND windowHandle,
     int message,
@@ -266,7 +284,8 @@ class CustomWindowWin32 extends CustomWindow {
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
 
-        double scale = flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
+        double scale =
+            flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
         double x = xClient / scale;
         double y = yClient / scale;
 
@@ -278,7 +297,9 @@ class CustomWindowWin32 extends CustomWindow {
 
           const edgeSize = 1;
 
-          if (_maximizeButtonRects.values.any((r) => r.contains(Offset(x, y)))) {
+          if (_maximizeButtonRects.values.any(
+            (r) => r.contains(Offset(x, y)),
+          )) {
             return HTMAXBUTTON;
           }
 

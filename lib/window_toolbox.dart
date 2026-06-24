@@ -8,34 +8,56 @@ import 'dart:ui' show Rect;
 import 'package:flutter/src/widgets/_window.dart';
 
 import 'src/custom_window.dart';
+import 'src/custom_window_init_options.dart';
 
 extension CustomWindowExtension on BaseWindowController {
   /// Enables window customization features for this window.
-  /// The customization is done by placing the following widgets in the widget tree:
-  /// - [WindowDragArea] for defining draggable areas of the window.
-  /// - [WindowDragExcludeArea] for defining areas that should not be draggable
-  ///   even if they are inside a [WindowDragArea].
-  /// - [WindowTrafficLight] for positioning macOS traffic light buttons.
-  /// - [MaximizeButton], [MinimizeButton], and [CloseButton].
-  /// - [WindowBorder] for drawing custom window border and shadow.
-  void enableCustomWindow() {
-    CustomWindow.init(this);
+  ///
+  /// On Win32, optional [frame], [transparentBackdrop], [mousePassthrough],
+  /// [hideFromSwitcher], [alwaysOnTop], and [hideUntilFirstFrame] are applied
+  /// during the deferred frameless setup that runs after the first frame.
+  void enableCustomWindow({
+    Rect? frame,
+    bool transparentBackdrop = false,
+    bool mousePassthrough = false,
+    bool hideFromSwitcher = false,
+    bool alwaysOnTop = false,
+    bool fullscreenCompatibleTopmost = true,
+    bool hideUntilFirstFrame = false,
+  }) {
+    CustomWindow.init(
+      this,
+      options: CustomWindowInitOptions(
+        frame: frame,
+        transparentBackdrop: transparentBackdrop,
+        mousePassthrough: mousePassthrough,
+        hideFromSwitcher: hideFromSwitcher,
+        alwaysOnTop: alwaysOnTop,
+        fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
+        hideUntilFirstFrame: hideUntilFirstFrame,
+      ),
+    );
   }
 
   /// Configures optional Win32 frameless extras. No-op on other platforms.
   ///
-  /// Pass [frame] and/or set [transparentBackdrop] for transparent,
-  /// full-screen, or engine-managed windows (e.g. tooltips). Size compensation
-  /// (shrinking the window after frameless WM_NCCALCSIZE) runs automatically
-  /// when [enableCustomWindow] was called on the same controller.
+  /// Prefer [enableCustomWindow] with the same parameters. This schedules
+  /// deferred setup when custom window is already enabled.
   void configureFramelessWindow({
     Rect? frame,
     bool transparentBackdrop = false,
+    bool mousePassthrough = false,
   }) {
     CustomWindow.configureFramelessWindow(
       this,
       frame: frame,
       transparentBackdrop: transparentBackdrop,
+      mousePassthrough: mousePassthrough,
     );
+  }
+
+  /// Win32-only: lifecycle-exact layered click-through toggle.
+  void setIgnoresMouseEvents(bool ignores) {
+    CustomWindow.setIgnoresMouseEvents(this, ignores);
   }
 }

@@ -6,12 +6,12 @@ import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:win32/win32.dart';
 
+import 'custom_window_init_options.dart';
+import 'win32_mouse_passthrough.dart';
+import 'win32_window_chrome.dart';
+
 /// Resizes [hwnd] to the content size Flutter intended before frameless
 /// [WM_NCCALCSIZE] handling expanded the client area to the full frame.
-///
-/// Flutter sizes the window frame with AdjustWindowRectExForDpi, which is
-/// unaware of custom non-client handling. Querying WM_NCCALCSIZE with
-/// wParam == 0 yields the standard client rect for the current frame.
 void compensateFramelessContentSizeForHwnd(HWND hwnd) {
   final frameRect = calloc<RECT>();
   try {
@@ -78,7 +78,7 @@ void refreshWindowSizeForHwnd(HWND hwnd) {
   }
 }
 
-// -- DWM transparent backdrop --
+// -- DWM transparent effect (lifecycle WindowEffect::Transparent) --
 
 const int _wcaAccentPolicy = 19;
 const int _accentEnableTransparentGradient = 2;
@@ -89,14 +89,52 @@ final int Function(Pointer, Pointer) _setWindowCompositionAttribute =
       int Function(Pointer, Pointer)
     >('SetWindowCompositionAttribute');
 
-/// Enables per-pixel transparency via the DWM accent policy.
-///
-/// Does not call [DwmExtendFrameIntoClientArea]; that API conflicts with
-/// frameless WM_NCCALCSIZE handling and restores visible non-client chrome.
+final int Function(int hwnd, Pointer<MARGINS> pMarInset)
+_dwmExtendFrameIntoClientArea = DynamicLibrary.open('dwmapi.dll')
+    .lookupFunction<
+      Int32 Function(IntPtr hwnd, Pointer<MARGINS> pMarInset),
+      int Function(int hwnd, Pointer<MARGINS> pMarInset)
+    >('DwmExtendFrameIntoClientArea');
+
+/// Toolbar-style transparent backdrop (accent only, no DwmExtendFrameIntoClientArea).
 void enableTransparentBackdropForHwnd(HWND hwnd) {
   final accent = calloc<_AccentPolicy>();
   accent.ref.accentState = _accentEnableTransparentGradient;
   accent.ref.accentFlags = 2;
+
+  final data = calloc<_WindowCompositionAttribData>();
+  data.ref.attrib = _wcaAccentPolicy;
+  data.ref.pvData = accent.cast();
+  data.ref.cbData = sizeOf<_AccentPolicy>();
+
+  try {
+    _setWindowCompositionAttribute(hwnd.cast(), data.cast());
+  } finally {
+    calloc.free(data);
+    calloc.free(accent);
+  }
+}
+
+/// Lifecycle-exact transparent effect for overlay windows.
+void enableLifecycleTransparentEffectForHwnd(
+  HWND hwnd, {
+  int gradientColor = 0,
+}) {
+  final margins = calloc<MARGINS>();
+  try {
+    margins.ref.cxLeftWidth = 0;
+    margins.ref.cxRightWidth = 0;
+    margins.ref.cyTopHeight = 0;
+    margins.ref.cyBottomHeight = 1;
+    _dwmExtendFrameIntoClientArea(hwnd.address, margins);
+  } finally {
+    calloc.free(margins);
+  }
+
+  final accent = calloc<_AccentPolicy>();
+  accent.ref.accentState = _accentEnableTransparentGradient;
+  accent.ref.accentFlags = 2;
+  accent.ref.gradientColor = gradientColor;
 
   final data = calloc<_WindowCompositionAttribData>();
   data.ref.attrib = _wcaAccentPolicy;
@@ -137,21 +175,18 @@ final class _WindowCompositionAttribData extends Struct {
 
 // -- Deferred frameless setup scheduler --
 
-/// Schedules deferred Win32 frameless setup for [controller].
-///
-/// Merges repeated calls before the first deferred run. [CustomWindowWin32]
-/// schedules size correction on construction; [CustomWindow.configureFramelessWindow]
-/// merges optional [frame] and [transparentBackdrop] into the same deferred
-/// run. Pass [compensateSize] to shrink the window after frameless
-/// [WM_NCCALCSIZE] removes the non-client area.
-///
-/// Timing: post-frame callback, then microtask — avoids Win32 subclass procs
-/// re-entering the Flutter scheduler mid-draw.
 void scheduleWin32FramelessSetup(
   WindowControllerWin32 controller, {
   Rect? frame,
   bool transparentBackdrop = false,
   bool compensateSize = false,
+  bool mousePassthrough = false,
+  bool hideFromSwitcher = false,
+  bool alwaysOnTop = false,
+  bool fullscreenCompatibleTopmost = true,
+  bool hideUntilFirstFrame = false,
+  bool revealAfterSetup = false,
+  bool useLifecycleTransparentEffect = false,
 }) {
   final state = _framelessSetupState[controller] ??=
       _Win32FramelessSetupPending();
@@ -162,8 +197,27 @@ void scheduleWin32FramelessSetup(
   if (transparentBackdrop) {
     state.transparentBackdrop = true;
   }
+  if (useLifecycleTransparentEffect) {
+    state.useLifecycleTransparentEffect = true;
+  }
   if (compensateSize) {
     state.compensateSize = true;
+  }
+  if (mousePassthrough) {
+    state.mousePassthrough = true;
+  }
+  if (hideFromSwitcher) {
+    state.hideFromSwitcher = true;
+  }
+  if (alwaysOnTop) {
+    state.alwaysOnTop = true;
+    state.fullscreenCompatibleTopmost = fullscreenCompatibleTopmost;
+  }
+  if (hideUntilFirstFrame) {
+    state.hideUntilFirstFrame = true;
+  }
+  if (revealAfterSetup) {
+    state.revealAfterSetup = true;
   }
 
   if (state.applyScheduled) {
@@ -179,6 +233,26 @@ void scheduleWin32FramelessSetup(
   });
 }
 
+void scheduleWin32FramelessSetupFromOptions(
+  WindowControllerWin32 controller,
+  CustomWindowInitOptions options, {
+  bool compensateSize = false,
+  bool revealAfterSetup = false,
+}) {
+  scheduleWin32FramelessSetup(
+    controller,
+    frame: options.frame,
+    transparentBackdrop: options.transparentBackdrop,
+    compensateSize: compensateSize && options.frame == null,
+    mousePassthrough: options.mousePassthrough,
+    hideFromSwitcher: options.hideFromSwitcher,
+    alwaysOnTop: options.alwaysOnTop,
+    fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
+    hideUntilFirstFrame: options.hideUntilFirstFrame,
+    revealAfterSetup: revealAfterSetup,
+  );
+}
+
 final _framelessSetupState = Expando<_Win32FramelessSetupPending>(
   'Win32FramelessSetup',
 );
@@ -186,8 +260,15 @@ final _framelessSetupState = Expando<_Win32FramelessSetupPending>(
 class _Win32FramelessSetupPending {
   bool applyScheduled = false;
   bool compensateSize = false;
-  Rect? frame;
   bool transparentBackdrop = false;
+  bool useLifecycleTransparentEffect = false;
+  bool mousePassthrough = false;
+  bool hideFromSwitcher = false;
+  bool alwaysOnTop = false;
+  bool fullscreenCompatibleTopmost = true;
+  bool hideUntilFirstFrame = false;
+  bool revealAfterSetup = false;
+  Rect? frame;
 }
 
 void _applyWin32FramelessSetup(
@@ -214,8 +295,49 @@ void _applyWin32FramelessSetup(
     refreshWindowSizeForHwnd(hwnd);
   }
 
-  if (state.transparentBackdrop) {
+  if (state.useLifecycleTransparentEffect) {
+    enableLifecycleTransparentEffectForHwnd(hwnd);
+    state.useLifecycleTransparentEffect = false;
+    state.transparentBackdrop = false;
+  } else if (state.transparentBackdrop) {
     enableTransparentBackdropForHwnd(hwnd);
     state.transparentBackdrop = false;
   }
+
+  if (state.hideFromSwitcher) {
+    setHideFromSwitcherForHwnd(hwnd, true);
+    state.hideFromSwitcher = false;
+  }
+
+  if (state.alwaysOnTop) {
+    setAlwaysOnTopForHwnd(
+      hwnd,
+      true,
+      fullscreenCompatible: state.fullscreenCompatibleTopmost,
+    );
+    state.alwaysOnTop = false;
+  }
+
+  if (state.mousePassthrough) {
+    state.mousePassthrough = false;
+    _scheduleLayeredMousePassthrough(hwnd);
+  }
+
+  if (state.revealAfterSetup) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    });
+    state.revealAfterSetup = false;
+    state.hideUntilFirstFrame = false;
+  }
+}
+
+/// Layered passthrough after DWM backdrop — matches overlay matrix variants E/F.
+void _scheduleLayeredMousePassthrough(HWND hwnd) {
+  Future<void>.delayed(const Duration(milliseconds: 150), () {
+    if (!IsWindow(hwnd)) {
+      return;
+    }
+    setIgnoresMouseEventsForHwnd(hwnd, true);
+  });
 }

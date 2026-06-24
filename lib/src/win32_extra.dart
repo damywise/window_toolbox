@@ -6,6 +6,7 @@ import 'package:win32/win32.dart';
 import 'package:ffi/ffi.dart' as ffi;
 import 'win32_frameless_setup.dart';
 import 'win32_util.dart';
+import 'win32_window_chrome.dart';
 
 /// Provides additional delegate methods for [WindowControllerWin32].
 ///
@@ -75,6 +76,11 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// and needs to enforce new size.
   void updateSize() {
     refreshWindowSizeForHwnd(HWND(windowHandle));
+  }
+
+  /// Brings this window to the front without activating it.
+  void bringToFront() {
+    bringToFrontForHwnd(HWND(windowHandle));
   }
 
   /// Controls whether the window can be minimized. This disables or enables the
@@ -327,8 +333,7 @@ class _WindowControllerWin32Private {
     _delegates.remove(delegate);
   }
 
-  List<WindowDelegateWin32> get delegates =>
-      List.unmodifiable(_delegates);
+  List<WindowDelegateWin32> get delegates => List.unmodifiable(_delegates);
 
   final List<WindowDelegateWin32> _delegates = [];
 
