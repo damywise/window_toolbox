@@ -40,6 +40,11 @@ abstract class CustomWindow {
       onClose: () {
         _expando[controller] = null;
         _appliedInitOptions.remove(controller);
+        if (controller is WindowControllerWin32) {
+          _appliedInitOptionsByHandle.remove(
+            (controller as WindowControllerWin32).windowHandle.address,
+          );
+        }
       },
     );
 
@@ -89,20 +94,14 @@ abstract class CustomWindow {
   }
 
   /// Re-applies Win32 backdrop, switcher, and topmost flags from the last
-  /// [enableCustomWindow] / [configureFramelessWindow] options. No-op on other
-  /// platforms. Does not re-schedule mouse passthrough delays.
-  static void reapplyWin32Chrome(BaseWindowController controller) {
-    if (controller is! WindowControllerWin32) {
-      return;
-    }
-    final options = _appliedInitOptions[controller];
+  /// [enableCustomWindow] / [configureFramelessWindow] options. Does not
+  /// re-schedule mouse passthrough delays.
+  static void reapplyWin32Chrome(WindowControllerWin32 controller) {
+    final options = _appliedInitOptionsByHandle[controller.windowHandle.address];
     if (options == null) {
       return;
     }
-    reapplyWin32ChromeFromOptions(
-      controller as WindowControllerWin32,
-      options,
-    );
+    reapplyWin32ChromeFromOptions(controller, options);
   }
 
   /// Win32-only: lifecycle-exact layered click-through toggle.
@@ -125,13 +124,21 @@ abstract class CustomWindow {
   static final _appliedInitOptions =
       <BaseWindowController, CustomWindowInitOptions>{};
 
+  static final _appliedInitOptionsByHandle =
+      <int, CustomWindowInitOptions>{};
+
   static void _recordAppliedOptions(
     BaseWindowController controller,
     CustomWindowInitOptions options,
   ) {
-    _appliedInitOptions[controller] =
+    final merged =
         (_appliedInitOptions[controller] ?? CustomWindowInitOptions.none)
             .merge(options);
+    _appliedInitOptions[controller] = merged;
+    if (controller is WindowControllerWin32) {
+      final win32 = controller as WindowControllerWin32;
+      _appliedInitOptionsByHandle[win32.windowHandle.address] = merged;
+    }
   }
 
   static CustomWindow? _create(
