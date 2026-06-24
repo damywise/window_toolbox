@@ -106,17 +106,12 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
 
-    if (_options.hideUntilFirstFrame) {
-      ShowWindow(_hwnd, SW_HIDE);
-    } else {
-      ShowWindow(_hwnd, SW_SHOW);
-    }
+    ShowWindow(_hwnd, SW_SHOW);
 
     scheduleWin32FramelessSetupFromOptions(
       controller,
       _options,
       compensateSize: true,
-      revealAfterSetup: _options.hideUntilFirstFrame,
     );
   }
 

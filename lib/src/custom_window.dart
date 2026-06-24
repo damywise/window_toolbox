@@ -39,7 +39,6 @@ abstract class CustomWindow {
       options: merged,
       onClose: () {
         _expando[controller] = null;
-        _appliedInitOptions.remove(controller);
         if (controller is WindowControllerWin32) {
           _appliedInitOptionsByHandle.remove(
             (controller as WindowControllerWin32).windowHandle.address,
@@ -121,9 +120,6 @@ abstract class CustomWindow {
   static final _pendingInitOptions =
       <BaseWindowController, CustomWindowInitOptions>{};
 
-  static final _appliedInitOptions =
-      <BaseWindowController, CustomWindowInitOptions>{};
-
   static final _appliedInitOptionsByHandle =
       <int, CustomWindowInitOptions>{};
 
@@ -131,14 +127,13 @@ abstract class CustomWindow {
     BaseWindowController controller,
     CustomWindowInitOptions options,
   ) {
-    final merged =
-        (_appliedInitOptions[controller] ?? CustomWindowInitOptions.none)
-            .merge(options);
-    _appliedInitOptions[controller] = merged;
-    if (controller is WindowControllerWin32) {
-      final win32 = controller as WindowControllerWin32;
-      _appliedInitOptionsByHandle[win32.windowHandle.address] = merged;
+    if (controller is! WindowControllerWin32) {
+      return;
     }
+    final handle = (controller as WindowControllerWin32).windowHandle.address;
+    _appliedInitOptionsByHandle[handle] =
+        (_appliedInitOptionsByHandle[handle] ?? CustomWindowInitOptions.none)
+            .merge(options);
   }
 
   static CustomWindow? _create(

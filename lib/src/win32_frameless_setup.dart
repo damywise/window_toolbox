@@ -184,8 +184,6 @@ void scheduleWin32FramelessSetup(
   bool hideFromSwitcher = false,
   bool alwaysOnTop = false,
   bool fullscreenCompatibleTopmost = true,
-  bool hideUntilFirstFrame = false,
-  bool revealAfterSetup = false,
   bool useLifecycleTransparentEffect = false,
 }) {
   final state = _framelessSetupState[controller] ??=
@@ -213,12 +211,6 @@ void scheduleWin32FramelessSetup(
     state.alwaysOnTop = true;
     state.fullscreenCompatibleTopmost = fullscreenCompatibleTopmost;
   }
-  if (hideUntilFirstFrame) {
-    state.hideUntilFirstFrame = true;
-  }
-  if (revealAfterSetup) {
-    state.revealAfterSetup = true;
-  }
 
   if (state.applyScheduled) {
     return;
@@ -237,7 +229,6 @@ void scheduleWin32FramelessSetupFromOptions(
   WindowControllerWin32 controller,
   CustomWindowInitOptions options, {
   bool compensateSize = false,
-  bool revealAfterSetup = false,
 }) {
   scheduleWin32FramelessSetup(
     controller,
@@ -248,8 +239,6 @@ void scheduleWin32FramelessSetupFromOptions(
     hideFromSwitcher: options.hideFromSwitcher,
     alwaysOnTop: options.alwaysOnTop,
     fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
-    hideUntilFirstFrame: options.hideUntilFirstFrame,
-    revealAfterSetup: revealAfterSetup,
   );
 }
 
@@ -266,8 +255,6 @@ class _Win32FramelessSetupPending {
   bool hideFromSwitcher = false;
   bool alwaysOnTop = false;
   bool fullscreenCompatibleTopmost = true;
-  bool hideUntilFirstFrame = false;
-  bool revealAfterSetup = false;
   Rect? frame;
 }
 
@@ -321,14 +308,6 @@ void _applyWin32FramelessSetup(
   if (state.mousePassthrough) {
     state.mousePassthrough = false;
     _scheduleLayeredMousePassthrough(hwnd);
-  }
-
-  if (state.revealAfterSetup) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-    });
-    state.revealAfterSetup = false;
-    state.hideUntilFirstFrame = false;
   }
 }
 

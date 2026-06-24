@@ -14,8 +14,8 @@ extension CustomWindowExtension on BaseWindowController {
   /// Enables window customization features for this window.
   ///
   /// On Win32, optional [frame], [transparentBackdrop], [mousePassthrough],
-  /// [hideFromSwitcher], [alwaysOnTop], and [hideUntilFirstFrame] are applied
-  /// during the deferred frameless setup that runs after the first frame.
+  /// [hideFromSwitcher], and [alwaysOnTop] are applied during the deferred
+  /// frameless setup that runs after the first frame.
   void enableCustomWindow({
     Rect? frame,
     bool transparentBackdrop = false,
@@ -23,7 +23,6 @@ extension CustomWindowExtension on BaseWindowController {
     bool hideFromSwitcher = false,
     bool alwaysOnTop = false,
     bool fullscreenCompatibleTopmost = true,
-    bool hideUntilFirstFrame = false,
   }) {
     CustomWindow.init(
       this,
@@ -34,7 +33,6 @@ extension CustomWindowExtension on BaseWindowController {
         hideFromSwitcher: hideFromSwitcher,
         alwaysOnTop: alwaysOnTop,
         fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
-        hideUntilFirstFrame: hideUntilFirstFrame,
       ),
     );
   }

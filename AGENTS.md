@@ -76,7 +76,6 @@ The `enableCustomWindow()` and `configureFramelessWindow()` methods are provided
 | `hideFromSwitcher` | Hide from Alt+Tab (`WS_EX_TOOLWINDOW`) |
 | `alwaysOnTop` | `HWND_TOPMOST` |
 | `fullscreenCompatibleTopmost` | When `alwaysOnTop`, also apply toolwindow ex-style (drawing overlays) |
-| `hideUntilFirstFrame` | `SW_HIDE` until deferred setup completes |
 
 `setIgnoresMouseEvents(bool)` toggles layered passthrough at runtime (Win32 only).
 

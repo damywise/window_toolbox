@@ -9,7 +9,6 @@ class CustomWindowInitOptions {
     this.hideFromSwitcher = false,
     this.alwaysOnTop = false,
     this.fullscreenCompatibleTopmost = true,
-    this.hideUntilFirstFrame = false,
   });
 
   final Rect? frame;
@@ -18,7 +17,6 @@ class CustomWindowInitOptions {
   final bool hideFromSwitcher;
   final bool alwaysOnTop;
   final bool fullscreenCompatibleTopmost;
-  final bool hideUntilFirstFrame;
 
   static const none = CustomWindowInitOptions();
 
@@ -30,7 +28,6 @@ class CustomWindowInitOptions {
       hideFromSwitcher: hideFromSwitcher || other.hideFromSwitcher,
       alwaysOnTop: alwaysOnTop || other.alwaysOnTop,
       fullscreenCompatibleTopmost: other.fullscreenCompatibleTopmost,
-      hideUntilFirstFrame: hideUntilFirstFrame || other.hideUntilFirstFrame,
     );
   }
 }
