@@ -17,17 +17,27 @@ controller.enableCustomWindow();
 
 On Windows, `enableCustomWindow()` schedules frameless size correction automatically after the first frame. For transparent toolbars, pass `transparentBackdrop: true` (and optionally `frame` in physical pixels). Prefer `enableCustomWindow(...)` over a separate `configureFramelessWindow(...)` call.
 
-**Drawing overlay (fullscreen, click-through):**
+**Drawing overlay (near-fullscreen, click-through):**
+
+Exact fullscreen width can break DWM compositing on Windows; spawn one physical
+pixel narrower than the display:
 
 ```dart
+final display = PlatformDispatcher.instance.displays.first;
+final frame = Rect.fromLTWH(
+  0,
+  0,
+  display.size.width - 1,
+  display.size.height,
+);
+
 controller.enableCustomWindow(
-  frame: displayFrame,
+  frame: frame,
   transparentBackdrop: true,
   mousePassthrough: true,
   hideFromSwitcher: true,
   alwaysOnTop: true,
   fullscreenCompatibleTopmost: true,
-  hideUntilFirstFrame: true,
 );
 ```
 

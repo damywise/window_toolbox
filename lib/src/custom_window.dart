@@ -1,27 +1,17 @@
 import 'package:flutter/src/widgets/_window.dart';
-
 import 'package:flutter/src/widgets/_window_macos.dart';
-
 import 'package:flutter/src/widgets/_window_win32.dart';
-
 import 'package:flutter/src/widgets/_window_linux.dart';
-
 import 'package:flutter/widgets.dart';
 
 import 'custom_window_init_options.dart';
-
 import 'custom_window_macos.dart';
-
 import 'custom_window_win32.dart';
-
 import 'custom_window_linux.dart';
-
 import 'win32_frameless_setup.dart';
-
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
 /// Platform window chrome customization backing [enableCustomWindow].
-
 abstract class CustomWindow {
   static CustomWindow? forController(BaseWindowController controller) {
     return _expando[controller];
@@ -29,7 +19,6 @@ abstract class CustomWindow {
 
   static void init(
     BaseWindowController controller, {
-
     CustomWindowInitOptions options = CustomWindowInitOptions.none,
   }) {
     final merged =
@@ -43,13 +32,14 @@ abstract class CustomWindow {
       return;
     }
 
+    _recordAppliedOptions(controller, merged);
+
     final created = _create(
       controller,
-
       options: merged,
-
       onClose: () {
         _expando[controller] = null;
+        _appliedInitOptions.remove(controller);
       },
     );
 
@@ -59,30 +49,20 @@ abstract class CustomWindow {
   }
 
   /// Configures optional Win32 frameless extras. No-op on other platforms.
-
   ///
-
   /// Prefer passing options to [enableCustomWindow] for new code. This method
-
   /// schedules deferred setup when custom window is already enabled.
-
   static void configureFramelessWindow(
     BaseWindowController controller, {
-
     Rect? frame,
-
     bool transparentBackdrop = false,
-
     bool mousePassthrough = false,
   }) {
     mergeOrScheduleOptions(
       controller,
-
       CustomWindowInitOptions(
         frame: frame,
-
         transparentBackdrop: transparentBackdrop,
-
         mousePassthrough: mousePassthrough,
       ),
     );
@@ -92,6 +72,8 @@ abstract class CustomWindow {
     BaseWindowController controller,
     CustomWindowInitOptions options,
   ) {
+    _recordAppliedOptions(controller, options);
+
     _pendingInitOptions[controller] =
         (_pendingInitOptions[controller] ?? CustomWindowInitOptions.none)
             .merge(options);
@@ -106,11 +88,26 @@ abstract class CustomWindow {
     }
   }
 
-  /// Win32-only: lifecycle-exact layered click-through toggle.
+  /// Re-applies Win32 backdrop, switcher, and topmost flags from the last
+  /// [enableCustomWindow] / [configureFramelessWindow] options. No-op on other
+  /// platforms. Does not re-schedule mouse passthrough delays.
+  static void reapplyWin32Chrome(BaseWindowController controller) {
+    if (controller is! WindowControllerWin32) {
+      return;
+    }
+    final options = _appliedInitOptions[controller];
+    if (options == null) {
+      return;
+    }
+    reapplyWin32ChromeFromOptions(
+      controller as WindowControllerWin32,
+      options,
+    );
+  }
 
+  /// Win32-only: lifecycle-exact layered click-through toggle.
   static void setIgnoresMouseEvents(
     BaseWindowController controller,
-
     bool ignores,
   ) {
     final customWindow = forController(controller);
@@ -125,31 +122,37 @@ abstract class CustomWindow {
   static final _pendingInitOptions =
       <BaseWindowController, CustomWindowInitOptions>{};
 
+  static final _appliedInitOptions =
+      <BaseWindowController, CustomWindowInitOptions>{};
+
+  static void _recordAppliedOptions(
+    BaseWindowController controller,
+    CustomWindowInitOptions options,
+  ) {
+    _appliedInitOptions[controller] =
+        (_appliedInitOptions[controller] ?? CustomWindowInitOptions.none)
+            .merge(options);
+  }
+
   static CustomWindow? _create(
     BaseWindowController controller, {
-
     required CustomWindowInitOptions options,
-
     required VoidCallback onClose,
   }) {
     if (controller is WindowControllerMacOS) {
       return CustomWindowMacOS(
         controller as WindowControllerMacOS,
-
         onClose: onClose,
       );
     } else if (controller is WindowControllerWin32) {
       return CustomWindowWin32(
         controller as WindowControllerWin32,
-
         onClose: onClose,
-
         options: options,
       );
     } else if (controller is WindowControllerLinux) {
       return CustomWindowLinux(
         controller as WindowControllerLinux,
-
         onClose: onClose,
       );
     } else {
@@ -163,9 +166,7 @@ abstract class CustomWindow {
 
   void setTrafficLightConfiguration(
     Offset offset,
-
     Brightness? brightness,
-
     WindowTrafficLightInactiveConfigration? inactiveConfigration,
   );
 
@@ -183,11 +184,8 @@ abstract class CustomWindow {
 
   void setCustomBorderShadowWidth(
     double top,
-
     double left,
-
     double bottom,
-
     double right,
   );
 
@@ -198,18 +196,11 @@ abstract class CustomWindow {
 
 enum WindowEdge {
   northWest,
-
   north,
-
   northEast,
-
   west,
-
   east,
-
   southWest,
-
   south,
-
   southEast,
 }

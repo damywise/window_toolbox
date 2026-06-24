@@ -4,6 +4,7 @@ import 'dart:ffi' as ffi;
 
 import 'package:win32/win32.dart';
 import 'package:ffi/ffi.dart' as ffi;
+import 'custom_window.dart';
 import 'win32_frameless_setup.dart';
 import 'win32_util.dart';
 import 'win32_window_chrome.dart';
@@ -81,6 +82,26 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
   /// Brings this window to the front without activating it.
   void bringToFront() {
     bringToFrontForHwnd(HWND(windowHandle));
+  }
+
+  /// Controls Alt+Tab visibility for this window.
+  void setHideFromSwitcher(bool hide) {
+    setHideFromSwitcherForHwnd(HWND(windowHandle), hide);
+  }
+
+  /// Sets HWND_TOPMOST / HWND_NOTOPMOST for this window.
+  void setAlwaysOnTop(bool alwaysOnTop, {bool fullscreenCompatible = true}) {
+    setAlwaysOnTopForHwnd(
+      HWND(windowHandle),
+      alwaysOnTop,
+      fullscreenCompatible: fullscreenCompatible,
+    );
+  }
+
+  /// Re-applies backdrop, switcher, and topmost from the last [enableCustomWindow]
+  /// options. Useful after [bringToFront].
+  void reapplyWin32Chrome() {
+    CustomWindow.reapplyWin32Chrome(this);
   }
 
   /// Controls whether the window can be minimized. This disables or enables the

@@ -332,6 +332,34 @@ void _applyWin32FramelessSetup(
   }
 }
 
+/// Re-applies backdrop / switcher / topmost from stored init options.
+///
+/// Use after z-order changes (e.g. [bringToFront]) so overlay chrome stays
+/// correct. Does not re-trigger [mousePassthrough] layering delays.
+void reapplyWin32ChromeFromOptions(
+  WindowControllerWin32 controller,
+  CustomWindowInitOptions options,
+) {
+  final hwnd = HWND(controller.windowHandle);
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
+
+  if (options.transparentBackdrop) {
+    enableTransparentBackdropForHwnd(hwnd);
+  }
+  if (options.hideFromSwitcher) {
+    setHideFromSwitcherForHwnd(hwnd, true);
+  }
+  if (options.alwaysOnTop) {
+    setAlwaysOnTopForHwnd(
+      hwnd,
+      true,
+      fullscreenCompatible: options.fullscreenCompatibleTopmost,
+    );
+  }
+}
+
 /// Layered passthrough after DWM backdrop — matches overlay matrix variants E/F.
 void _scheduleLayeredMousePassthrough(HWND hwnd) {
   Future<void>.delayed(const Duration(milliseconds: 150), () {

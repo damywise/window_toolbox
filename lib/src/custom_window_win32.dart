@@ -281,6 +281,10 @@ class CustomWindowWin32 extends CustomWindow {
       case _wmNcUahDrawFrame:
         return 0;
       case WM_NCHITTEST:
+        final passthrough = mousePassthroughNchitTest(_hwnd, message);
+        if (passthrough != null) {
+          return passthrough;
+        }
         final (xPos, yPos) = splitLParam(lParam);
         final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
 
