@@ -26,6 +26,30 @@ void setHideFromSwitcherForHwnd(HWND hwnd, bool hide) {
   );
 }
 
+/// Undocumented but set by `SetWindowPos` with `HWND_TOPMOST` / `HWND_NOTOPMOST`.
+const _WS_EX_TOPMOST = 0x00000008;
+
+bool _hwndHasDesiredTopmostState(
+  HWND hwnd,
+  bool onTop, {
+  required bool fullscreenCompatible,
+}) {
+  final exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+  final isTopmost = (exStyle & _WS_EX_TOPMOST) != 0;
+  if (!onTop) {
+    return !isTopmost;
+  }
+  if (!isTopmost) {
+    return false;
+  }
+  if (!fullscreenCompatible) {
+    return true;
+  }
+  final hasToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+  final hasAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+  return hasToolWindow && !hasAppWindow;
+}
+
 /// Port of `window_lifecycle_set_always_on_top` in ZOrderManagement.cpp.
 void setAlwaysOnTopForHwnd(
   HWND hwnd,
@@ -33,6 +57,14 @@ void setAlwaysOnTopForHwnd(
   bool fullscreenCompatible = true,
 }) {
   if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
+
+  if (_hwndHasDesiredTopmostState(
+    hwnd,
+    onTop,
+    fullscreenCompatible: fullscreenCompatible,
+  )) {
     return;
   }
 
@@ -95,5 +127,28 @@ void bringToFrontForHwnd(HWND hwnd) {
     0,
     0,
     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+  );
+}
+
+/// Re-applies [WS_EX_NOACTIVATE] after optional DWM / ex-style tweaks.
+///
+/// Flutter tooltip/popup HWNDs are created with this flag; losing it lets
+/// satellites steal foreground and triggers popup auto-close ([WM_ACTIVATE]).
+void preserveNoActivateForHwnd(HWND hwnd) {
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
+
+  var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+  exStyle |= WS_EX_NOACTIVATE;
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
+  SetWindowPos(
+    hwnd,
+    null,
+    0,
+    0,
+    0,
+    0,
+    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
   );
 }

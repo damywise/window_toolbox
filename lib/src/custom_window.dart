@@ -39,10 +39,9 @@ abstract class CustomWindow {
       options: merged,
       onClose: () {
         _expando[controller] = null;
-        if (controller is WindowControllerWin32) {
-          _appliedInitOptionsByHandle.remove(
-            (controller as WindowControllerWin32).windowHandle.address,
-          );
+        final handle = hwndAddressFor(controller);
+        if (handle != null) {
+          _appliedInitOptionsByHandle.remove(handle);
         }
       },
     );
@@ -83,12 +82,14 @@ abstract class CustomWindow {
             .merge(options);
 
     // Frameless setup (e.g. transparent backdrop) must run even when
-    // [enableCustomWindow] was not called — tooltips use configureFramelessWindow only.
+    // [enableCustomWindow] was not called — satellites use configureFramelessWindow.
     if (controller is WindowControllerWin32) {
       scheduleWin32FramelessSetupFromOptions(
         controller as WindowControllerWin32,
         options,
       );
+    } else {
+      scheduleWin32FramelessSetupFromOptionsForSatellite(controller, options);
     }
   }
 
@@ -127,10 +128,10 @@ abstract class CustomWindow {
     BaseWindowController controller,
     CustomWindowInitOptions options,
   ) {
-    if (controller is! WindowControllerWin32) {
+    final handle = hwndAddressFor(controller);
+    if (handle == null) {
       return;
     }
-    final handle = (controller as WindowControllerWin32).windowHandle.address;
     _appliedInitOptionsByHandle[handle] =
         (_appliedInitOptionsByHandle[handle] ?? CustomWindowInitOptions.none)
             .merge(options);
