@@ -6,8 +6,16 @@ import 'package:win32/win32.dart';
 /// HWNDs registered for DWM-compatible click-through (no [WS_EX_LAYERED]).
 final _dwmPassthroughHwnds = <int>{};
 
-bool isDwmCompatiblePassthroughHwnd(HWND hwnd) =>
-    _dwmPassthroughHwnds.contains(hwnd.address);
+bool isDwmCompatiblePassthroughHwnd(HWND hwnd) {
+  if (!_dwmPassthroughHwnds.contains(hwnd.address)) {
+    return false;
+  }
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    _dwmPassthroughHwnds.remove(hwnd.address);
+    return false;
+  }
+  return true;
+}
 
 /// Click-through compatible with DWM [transparentBackdrop].
 ///

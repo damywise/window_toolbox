@@ -11,6 +11,7 @@ import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 import 'package:win32/win32.dart';
 
 import 'win32_extra.dart';
+import 'win32_frameless_setup.dart' show hwndForController;
 
 /// Default logical-pixel gap between a frameless toolbar and satellite windows.
 const kDefaultToolbarSatelliteGap = 8.0;
@@ -152,23 +153,6 @@ enum Win32SatelliteHorizontalAlign {
 
   /// Child right edge flush with parent right edge (screen coords).
   parentTrailing,
-}
-
-HWND? _hwndFor(BaseWindowController controller) {
-  try {
-    if (controller is WindowControllerWin32) {
-      return HWND((controller as WindowControllerWin32).windowHandle);
-    }
-    if (controller is PopupWindowControllerWin32) {
-      return HWND(controller.getWindowHandle());
-    }
-    if (controller is TooltipWindowControllerWin32) {
-      return HWND(controller.windowHandle);
-    }
-  } on StateError {
-    // Child window was destroyed while a frame callback was pending.
-  }
-  return null;
 }
 
 ui.Size? _contentSizeLogical(BaseWindowController controller) {
@@ -422,8 +406,8 @@ class Win32SatelliteGapController {
   }
 
   bool _applyGapViaSetWindowPos() {
-    final parentHwnd = _hwndFor(parentController);
-    final childHwnd = _hwndFor(childController);
+    final parentHwnd = hwndForController(parentController);
+    final childHwnd = hwndForController(childController);
     if (parentHwnd == null ||
         childHwnd == null ||
         parentHwnd.isNull ||

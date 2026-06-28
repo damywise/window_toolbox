@@ -211,9 +211,6 @@ HWND? hwndForController(BaseWindowController controller) {
   return null;
 }
 
-HWND? _hwndForController(BaseWindowController controller) =>
-    hwndForController(controller);
-
 /// Schedules frameless extras for tooltip/popup satellites (no [WindowControllerWin32]).
 void scheduleWin32FramelessSetupForSatellite(
   BaseWindowController controller, {
@@ -225,7 +222,7 @@ void scheduleWin32FramelessSetupForSatellite(
   bool alwaysOnTop = false,
   bool fullscreenCompatibleTopmost = true,
 }) {
-  final hwnd = _hwndForController(controller);
+  final hwnd = hwndForController(controller);
   if (hwnd == null) {
     return;
   }
@@ -315,6 +312,7 @@ void scheduleWin32FramelessSetupForHwnd(
         return;
       }
       _applyWin32FramelessSetupForHwnd(hwnd, state);
+      _framelessSetupStateByHwnd.remove(hwnd.address);
     });
   });
 }
@@ -330,43 +328,25 @@ void scheduleWin32FramelessSetup(
   bool fullscreenCompatibleTopmost = true,
   bool useLifecycleTransparentEffect = false,
 }) {
-  final state = _framelessSetupState[controller] ??=
-      _Win32FramelessSetupPending();
-
-  if (frame != null) {
-    state.frame = frame;
-  }
-  if (transparentBackdrop) {
-    state.transparentBackdrop = true;
-  }
-  if (useLifecycleTransparentEffect) {
-    state.useLifecycleTransparentEffect = true;
-  }
-  if (compensateSize) {
-    state.compensateSize = true;
-  }
-  if (mousePassthrough) {
-    state.mousePassthrough = true;
-  }
-  if (hideFromSwitcher) {
-    state.hideFromSwitcher = true;
-  }
-  if (alwaysOnTop) {
-    state.alwaysOnTop = true;
-    state.fullscreenCompatibleTopmost = fullscreenCompatibleTopmost;
-  }
-
-  if (state.applyScheduled) {
+  try {
+    final hwnd = HWND(controller.windowHandle);
+    if (hwnd.isNull || !IsWindow(hwnd)) {
+      return;
+    }
+    scheduleWin32FramelessSetupForHwnd(
+      hwnd,
+      frame: frame,
+      transparentBackdrop: transparentBackdrop,
+      compensateSize: compensateSize,
+      mousePassthrough: mousePassthrough,
+      hideFromSwitcher: hideFromSwitcher,
+      alwaysOnTop: alwaysOnTop,
+      fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
+      useLifecycleTransparentEffect: useLifecycleTransparentEffect,
+    );
+  } on StateError {
     return;
   }
-  state.applyScheduled = true;
-
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    Future.microtask(() {
-      state.applyScheduled = false;
-      _applyWin32FramelessSetup(controller, state);
-    });
-  });
 }
 
 void scheduleWin32FramelessSetupFromOptions(
@@ -386,10 +366,6 @@ void scheduleWin32FramelessSetupFromOptions(
   );
 }
 
-final _framelessSetupState = Expando<_Win32FramelessSetupPending>(
-  'Win32FramelessSetup',
-);
-
 class _Win32FramelessSetupPending {
   bool applyScheduled = false;
   bool compensateSize = false;
@@ -400,20 +376,6 @@ class _Win32FramelessSetupPending {
   bool alwaysOnTop = false;
   bool fullscreenCompatibleTopmost = true;
   Rect? frame;
-}
-
-void _applyWin32FramelessSetup(
-  WindowControllerWin32 controller,
-  _Win32FramelessSetupPending state,
-) {
-  final HWND hwnd;
-  try {
-    hwnd = HWND(controller.windowHandle);
-  } on StateError {
-    // Satellite window destroyed before the post-frame microtask ran.
-    return;
-  }
-  _applyWin32FramelessSetupForHwnd(hwnd, state);
 }
 
 void _applyWin32FramelessSetupForHwnd(
