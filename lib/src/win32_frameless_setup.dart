@@ -317,6 +317,18 @@ void scheduleWin32FramelessSetupForHwnd(
   });
 }
 
+/// Cancels any pending frameless setup for [hwnd] and removes it from the
+/// deferred-setup map.
+///
+/// Call this before destroying a satellite window (tooltip, popup) to prevent
+/// stale state from leaking to a re-created window that reuses the same HWND.
+void cancelWin32FramelessSetupForHwnd(HWND hwnd) {
+  if (hwnd.isNull) {
+    return;
+  }
+  _framelessSetupStateByHwnd.remove(hwnd.address);
+}
+
 void scheduleWin32FramelessSetup(
   WindowControllerWin32 controller, {
   Rect? frame,
