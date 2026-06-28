@@ -2,6 +2,7 @@ import 'dart:ffi';
 import 'dart:ui' show Rect;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:win32/win32.dart';
@@ -175,6 +176,161 @@ final class _WindowCompositionAttribData extends Struct {
 
 // -- Deferred frameless setup scheduler --
 
+int? hwndAddressFor(BaseWindowController controller) {
+  final hwnd = hwndForController(controller);
+  return hwnd?.address;
+}
+
+HWND? hwndForController(BaseWindowController controller) {
+  try {
+    if (controller is PopupWindowControllerWin32) {
+      final hwnd = HWND(controller.getWindowHandle());
+      if (hwnd.isNull || !IsWindow(hwnd)) {
+        return null;
+      }
+      return hwnd;
+    }
+    if (controller is TooltipWindowControllerWin32) {
+      final hwnd = HWND(controller.windowHandle);
+      if (hwnd.isNull || !IsWindow(hwnd)) {
+        return null;
+      }
+      return hwnd;
+    }
+    if (controller is WindowControllerWin32) {
+      final win32 = controller as WindowControllerWin32;
+      final hwnd = HWND(win32.windowHandle);
+      if (hwnd.isNull || !IsWindow(hwnd)) {
+        return null;
+      }
+      return hwnd;
+    }
+  } on StateError {
+    return null;
+  }
+  return null;
+}
+
+HWND? _hwndForController(BaseWindowController controller) =>
+    hwndForController(controller);
+
+/// Schedules frameless extras for tooltip/popup satellites (no [WindowControllerWin32]).
+void scheduleWin32FramelessSetupForSatellite(
+  BaseWindowController controller, {
+  Rect? frame,
+  bool transparentBackdrop = false,
+  bool compensateSize = false,
+  bool mousePassthrough = false,
+  bool hideFromSwitcher = false,
+  bool alwaysOnTop = false,
+  bool fullscreenCompatibleTopmost = true,
+}) {
+  final hwnd = _hwndForController(controller);
+  if (hwnd == null) {
+    return;
+  }
+  scheduleWin32FramelessSetupForHwnd(
+    hwnd,
+    frame: frame,
+    transparentBackdrop: transparentBackdrop,
+    compensateSize: compensateSize,
+    mousePassthrough: mousePassthrough,
+    hideFromSwitcher: hideFromSwitcher,
+    alwaysOnTop: alwaysOnTop,
+    fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
+  );
+}
+
+void scheduleWin32FramelessSetupFromOptionsForSatellite(
+  BaseWindowController controller,
+  CustomWindowInitOptions options, {
+  bool compensateSize = false,
+}) {
+  scheduleWin32FramelessSetupForSatellite(
+    controller,
+    frame: options.frame,
+    transparentBackdrop: options.transparentBackdrop,
+    compensateSize: compensateSize && options.frame == null,
+    mousePassthrough: options.mousePassthrough,
+    hideFromSwitcher: options.hideFromSwitcher,
+    alwaysOnTop: options.alwaysOnTop,
+    fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
+  );
+}
+
+final _framelessSetupStateByHwnd = <int, _Win32FramelessSetupPending>{};
+
+void scheduleWin32FramelessSetupForHwnd(
+  HWND hwnd, {
+  Rect? frame,
+  bool transparentBackdrop = false,
+  bool compensateSize = false,
+  bool mousePassthrough = false,
+  bool hideFromSwitcher = false,
+  bool alwaysOnTop = false,
+  bool fullscreenCompatibleTopmost = true,
+  bool useLifecycleTransparentEffect = false,
+}) {
+  if (hwnd.isNull) {
+    return;
+  }
+  final state = _framelessSetupStateByHwnd.putIfAbsent(
+    hwnd.address,
+    () => _Win32FramelessSetupPending(),
+  );
+
+  if (frame != null) {
+    state.frame = frame;
+  }
+  if (transparentBackdrop) {
+    state.transparentBackdrop = true;
+  }
+  if (useLifecycleTransparentEffect) {
+    state.useLifecycleTransparentEffect = true;
+  }
+  if (compensateSize) {
+    state.compensateSize = true;
+  }
+  if (mousePassthrough) {
+    state.mousePassthrough = true;
+  }
+  if (hideFromSwitcher) {
+    state.hideFromSwitcher = true;
+  }
+  if (alwaysOnTop) {
+    state.alwaysOnTop = true;
+    state.fullscreenCompatibleTopmost = fullscreenCompatibleTopmost;
+  }
+
+  if (state.applyScheduled) {
+    return;
+  }
+  state.applyScheduled = true;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.microtask(() {
+      state.applyScheduled = false;
+      if (hwnd.isNull || !IsWindow(hwnd)) {
+        _framelessSetupStateByHwnd.remove(hwnd.address);
+        return;
+      }
+      _applyWin32FramelessSetupForHwnd(hwnd, state);
+    });
+  });
+}
+
+/// Cancels any pending frameless setup for [hwnd] and removes it from the
+/// deferred-setup map.
+///
+/// Call this before destroying a satellite window (tooltip, popup) to prevent
+/// stale state from leaking to a re-created window that reuses the same HWND.
+void cancelWin32FramelessSetupForHwnd(HWND hwnd) {
+  if (hwnd.isNull) {
+    return;
+  }
+  _framelessSetupStateByHwnd.remove(hwnd.address);
+}
+
 void scheduleWin32FramelessSetup(
   WindowControllerWin32 controller, {
   Rect? frame,
@@ -262,7 +418,23 @@ void _applyWin32FramelessSetup(
   WindowControllerWin32 controller,
   _Win32FramelessSetupPending state,
 ) {
-  final hwnd = HWND(controller.windowHandle);
+  final HWND hwnd;
+  try {
+    hwnd = HWND(controller.windowHandle);
+  } on StateError {
+    // Satellite window destroyed before the post-frame microtask ran.
+    return;
+  }
+  _applyWin32FramelessSetupForHwnd(hwnd, state);
+}
+
+void _applyWin32FramelessSetupForHwnd(
+  HWND hwnd,
+  _Win32FramelessSetupPending state,
+) {
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
 
   bool didSetGeometry = false;
 
@@ -288,6 +460,7 @@ void _applyWin32FramelessSetup(
     state.transparentBackdrop = false;
   } else if (state.transparentBackdrop) {
     enableTransparentBackdropForHwnd(hwnd);
+    preserveNoActivateForHwnd(hwnd);
     state.transparentBackdrop = false;
   }
 
@@ -319,13 +492,19 @@ void reapplyWin32ChromeFromOptions(
   WindowControllerWin32 controller,
   CustomWindowInitOptions options,
 ) {
-  final hwnd = HWND(controller.windowHandle);
+  final HWND hwnd;
+  try {
+    hwnd = HWND(controller.windowHandle);
+  } on StateError {
+    return;
+  }
   if (hwnd.isNull || !IsWindow(hwnd)) {
     return;
   }
 
   if (options.transparentBackdrop) {
     enableTransparentBackdropForHwnd(hwnd);
+    preserveNoActivateForHwnd(hwnd);
   }
   if (options.hideFromSwitcher) {
     setHideFromSwitcherForHwnd(hwnd, true);
