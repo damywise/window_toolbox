@@ -3,6 +3,7 @@ export 'src/macos_extra.dart';
 export 'src/win32_extra.dart';
 export 'src/linux_extra.dart';
 export 'src/win32_mouse_passthrough.dart' show setIgnoresMouseEventsForHwnd;
+export 'src/win32_frameless_setup.dart' show hwndAddressFor;
 export 'src/win32_satellite_gap.dart';
 
 import 'dart:ui' show Rect;
