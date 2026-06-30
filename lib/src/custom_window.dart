@@ -128,9 +128,6 @@ abstract class CustomWindow {
     BaseWindowController controller,
     CustomWindowInitOptions options,
   ) {
-    if (controller is! WindowControllerWin32) {
-      return;
-    }
     final handle = hwndAddressFor(controller);
     if (handle == null) {
       return;

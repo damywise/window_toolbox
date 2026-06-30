@@ -34,7 +34,7 @@ class CustomWindowInitOptions {
   CustomWindowInitOptions merge(CustomWindowInitOptions other) {
     return CustomWindowInitOptions(
       frame: other.frame ?? frame,
-      titleless: other.titleless && titleless,
+      titleless: titleless || other.titleless,
       transparentBackdrop: transparentBackdrop || other.transparentBackdrop,
       mousePassthrough: mousePassthrough || other.mousePassthrough,
       hideFromSwitcher: hideFromSwitcher || other.hideFromSwitcher,
