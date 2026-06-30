@@ -93,7 +93,7 @@ class CustomWindowWin32 extends CustomWindow {
     this.controller, {
     required this.onClose,
     this._options = CustomWindowInitOptions.none,
-  }) {
+  }) : _isFrameless = _options.isFrameless {
     controller.addWindowsMessageHandler(handleWindowsMessage);
     _ensureResizeChromeStyle(_hwnd);
 
@@ -106,16 +106,29 @@ class CustomWindowWin32 extends CustomWindow {
       0,
     );
 
-    ShowWindow(_hwnd, SW_SHOW);
+    if (_isFrameless) {
+      ShowWindow(_hwnd, SW_SHOW);
+    }
 
-    scheduleWin32FramelessSetupFromOptions(
-      controller,
-      _options,
-      compensateSize: true,
-    );
+    if (_needsDeferredWin32Setup) {
+      scheduleWin32FramelessSetupFromOptions(
+        controller,
+        _options,
+        compensateSize: _isFrameless && _options.frame == null,
+      );
+    }
   }
 
   final CustomWindowInitOptions _options;
+  final bool _isFrameless;
+
+  bool get _needsDeferredWin32Setup =>
+      _isFrameless ||
+      _options.frame != null ||
+      _options.transparentBackdrop ||
+      _options.mousePassthrough ||
+      _options.hideFromSwitcher ||
+      _options.alwaysOnTop;
 
   final VoidCallback onClose;
 
@@ -161,6 +174,30 @@ class CustomWindowWin32 extends CustomWindow {
           SWP_NOZORDER |
           SWP_NOACTIVATE,
     );
+  }
+
+  /// Titleless [WM_NCCALCSIZE]: remove the caption band but keep native frame
+  /// insets on the sides and bottom (knopp/window_toolbox upstream).
+  static int _applyTitlelessNccalcsize(HWND windowHandle, int lParam) {
+    final dpi = flutterDesktopDpiForHwnd(windowHandle.cast<Void>());
+    final padding = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi).value;
+    final borderLR =
+        GetSystemMetricsForDpi(SM_CXFRAME, dpi).value + padding;
+    final borderTB =
+        GetSystemMetricsForDpi(SM_CYFRAME, dpi).value + padding;
+    final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
+    final rect = params.ref.rgrc[0];
+    final scale = dpi / 96.0;
+    if (IsZoomed(windowHandle)) {
+      rect.top += borderTB;
+    } else {
+      // Otherwise we miss one pixel from top.
+      rect.top += (1 * scale).round();
+    }
+    rect.left += borderLR;
+    rect.right -= borderLR;
+    rect.bottom -= borderTB;
+    return 0;
   }
 
   /// Compensates for off-screen borders when maximized. See window_manager's
@@ -243,6 +280,124 @@ class CustomWindowWin32 extends CustomWindow {
     setIgnoresMouseEventsForHwnd(_hwnd, ignores);
   }
 
+  int? _handleFramelessNchitTest(
+    HWND windowHandle,
+    int lParam,
+  ) {
+    final (xPos, yPos) = splitLParam(lParam);
+    final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
+
+    final scale = flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
+    final x = xClient / scale;
+    final y = yClient / scale;
+
+    final rect = malloc<RECT>();
+    try {
+      GetClientRect(_hwnd, rect);
+      final width = (rect.ref.right - rect.ref.left) / scale;
+      final height = (rect.ref.bottom - rect.ref.top) / scale;
+
+      const edgeSize = 1.0;
+
+      if (_maximizeButtonRects.values.any(
+        (r) => r.contains(Offset(x, y)),
+      )) {
+        return HTMAXBUTTON;
+      }
+
+      if (y < edgeSize) {
+        if (x < edgeSize) {
+          return HTTOPLEFT;
+        } else if (x > width - edgeSize) {
+          return HTTOPRIGHT;
+        } else {
+          return HTTOP;
+        }
+      } else if (y > height - edgeSize) {
+        if (x < edgeSize) {
+          return HTBOTTOMLEFT;
+        } else if (x > width - edgeSize) {
+          return HTBOTTOMRIGHT;
+        } else {
+          return HTBOTTOM;
+        }
+      } else if (x < edgeSize) {
+        return HTLEFT;
+      } else if (x > width - edgeSize) {
+        return HTRIGHT;
+      }
+
+      for (final excludeRect in _dragExcludeRects.values) {
+        if (excludeRect.contains(Offset(x, y))) {
+          return HTCLIENT;
+        }
+      }
+      return HTCLIENT;
+    } finally {
+      malloc.free(rect);
+    }
+  }
+
+  int? _handleTitlelessNchitTest(
+    HWND windowHandle,
+    int lParam,
+  ) {
+    final (xPos, yPos) = splitLParam(lParam);
+    final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
+
+    final scale = flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
+    final x = xClient / scale;
+    final y = yClient / scale;
+
+    final rect = malloc<RECT>();
+    try {
+      GetClientRect(_hwnd, rect);
+      final width = (rect.ref.right - rect.ref.left) / scale;
+      final height = (rect.ref.bottom - rect.ref.top) / scale;
+
+      // Sides and bottom are extended through WM_NCCALCSIZE.
+      const edgeSize = 1.0;
+      const topEdgeSize = 3.0; // 1px from WM_NCCALCSIZE + 3px
+
+      if (_maximizeButtonRects.values.any(
+        (r) => r.contains(Offset(x, y)),
+      )) {
+        return HTMAXBUTTON;
+      }
+
+      if (y < topEdgeSize) {
+        if (x < topEdgeSize) {
+          return HTTOPLEFT;
+        } else if (x > width - topEdgeSize) {
+          return HTTOPRIGHT;
+        } else {
+          return HTTOP;
+        }
+      } else if (y > height - edgeSize) {
+        if (x < edgeSize) {
+          return HTBOTTOMLEFT;
+        } else if (x > width - edgeSize) {
+          return HTBOTTOMRIGHT;
+        } else {
+          return HTBOTTOM;
+        }
+      } else if (x < edgeSize) {
+        return HTLEFT;
+      } else if (x > width - edgeSize) {
+        return HTRIGHT;
+      }
+
+      for (final excludeRect in _dragExcludeRects.values) {
+        if (excludeRect.contains(Offset(x, y))) {
+          return HTCLIENT;
+        }
+      }
+      return HTCLIENT;
+    } finally {
+      malloc.free(rect);
+    }
+  }
+
   int? handleWindowsMessage(
     HWND windowHandle,
     int message,
@@ -254,85 +409,47 @@ class CustomWindowWin32 extends CustomWindow {
         onClose();
         break;
       case WM_ERASEBKGND:
-        return 0;
+        if (_isFrameless) {
+          return 0;
+        }
+        break;
       case WM_SIZE:
         // This would cause Flutter relayout with a very small size.
         if (wParam == SIZE_MINIMIZED) return 0;
         break;
       case WM_NCCALCSIZE:
         if (wParam == 1) {
-          // Non-maximized: client area is the full frame (zero NC inset).
-          // Maximized: inset to the monitor work area.
-          if (IsZoomed(_hwnd)) {
-            final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
-            _adjustNccalcsizeForMaximized(params);
+          if (_isFrameless) {
+            // Frameless: client fills the outer frame (zero NC inset).
+            if (IsZoomed(_hwnd)) {
+              final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
+              _adjustNccalcsizeForMaximized(params);
+            }
+            return 0;
           }
-          return 0;
+          return _applyTitlelessNccalcsize(windowHandle, lParam);
         }
         break;
       case WM_NCACTIVATE:
-        return 1;
+        if (_isFrameless) {
+          return 1;
+        }
+        break;
       case _wmNcUahDrawCaption:
       case _wmNcUahDrawFrame:
-        return 0;
+        if (_isFrameless) {
+          return 0;
+        }
+        break;
       case WM_NCHITTEST:
         final passthrough = mousePassthroughNchitTest(_hwnd, message);
         if (passthrough != null) {
           return passthrough;
         }
-        final (xPos, yPos) = splitLParam(lParam);
-        final (xClient, yClient) = screenToClient(_hwnd, xPos, yPos);
-
-        double scale =
-            flutterDesktopDpiForHwnd(windowHandle.cast<Void>()) / 96.0;
-        double x = xClient / scale;
-        double y = yClient / scale;
-
-        final rect = malloc<RECT>();
-        try {
-          GetClientRect(_hwnd, rect);
-          final width = (rect.ref.right - rect.ref.left) / scale;
-          final height = (rect.ref.bottom - rect.ref.top) / scale;
-
-          const edgeSize = 1;
-
-          if (_maximizeButtonRects.values.any(
-            (r) => r.contains(Offset(x, y)),
-          )) {
-            return HTMAXBUTTON;
-          }
-
-          if (y < edgeSize) {
-            if (x < edgeSize) {
-              return HTTOPLEFT;
-            } else if (x > width - edgeSize) {
-              return HTTOPRIGHT;
-            } else {
-              return HTTOP;
-            }
-          } else if (y > height - edgeSize) {
-            if (x < edgeSize) {
-              return HTBOTTOMLEFT;
-            } else if (x > width - edgeSize) {
-              return HTBOTTOMRIGHT;
-            } else {
-              return HTBOTTOM;
-            }
-          } else if (x < edgeSize) {
-            return HTLEFT;
-          } else if (x > width - edgeSize) {
-            return HTRIGHT;
-          }
-
-          for (final excludeRect in _dragExcludeRects.values) {
-            if (excludeRect.contains(Offset(x, y))) {
-              return HTCLIENT;
-            }
-          }
-          return HTCLIENT;
-        } finally {
-          malloc.free(rect);
+        if (_isFrameless) {
+          return _handleFramelessNchitTest(windowHandle, lParam);
         }
+        return _handleTitlelessNchitTest(windowHandle, lParam);
       case WM_NCMOUSEMOVE:
         if (wParam == HTMAXBUTTON || wParam == HTCAPTION) {
           final (x, y) = splitLParam(lParam);

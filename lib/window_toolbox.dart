@@ -15,11 +15,17 @@ import 'src/custom_window_init_options.dart';
 extension CustomWindowExtension on BaseWindowController {
   /// Enables window customization features for this window.
   ///
-  /// On Win32, optional [frame], [transparentBackdrop], [mousePassthrough],
-  /// [hideFromSwitcher], and [alwaysOnTop] are applied during the deferred
-  /// frameless setup that runs after the first frame.
+  /// On Win32, pass `titleless: true` to keep the native non-client frame and
+  /// only remove the caption band (knopp/window_toolbox titleless mode). The
+  /// default is frameless chrome (client fills the outer frame). Overlay flags
+  /// (`transparentBackdrop`, `mousePassthrough`) also select frameless mode.
+  ///
+  /// Optional [frame], [transparentBackdrop], [mousePassthrough],
+  /// [hideFromSwitcher], and [alwaysOnTop] are applied during deferred setup
+  /// after the first frame.
   void enableCustomWindow({
     Rect? frame,
+    bool titleless = false,
     bool transparentBackdrop = false,
     bool mousePassthrough = false,
     bool hideFromSwitcher = false,
@@ -30,6 +36,7 @@ extension CustomWindowExtension on BaseWindowController {
       this,
       options: CustomWindowInitOptions(
         frame: frame,
+        titleless: titleless,
         transparentBackdrop: transparentBackdrop,
         mousePassthrough: mousePassthrough,
         hideFromSwitcher: hideFromSwitcher,

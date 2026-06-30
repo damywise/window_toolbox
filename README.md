@@ -8,14 +8,17 @@ In addition to custom window chrome, this package also provides extension classe
 
 ## Custom window chrome
 
-To customize window, it is necessary first to start with disabling existing window decorations:
+To customize window, it is necessary first to call [enableCustomWindow] on the controller:
 
 ```dart
 controller = RegularWindowController(...);
-controller.enableCustomWindow();
+controller.enableCustomWindow(); // frameless by default on Win32
+// controller.enableCustomWindow(titleless: true); // native frame + custom caption
 ```
 
-On Windows, `enableCustomWindow()` schedules frameless size correction automatically after the first frame. For transparent toolbars, pass `transparentBackdrop: true` (and optionally `frame` in physical pixels). Prefer `enableCustomWindow(...)` over a separate `configureFramelessWindow(...)` call.
+Pass `titleless: true` for **titleless** windows: the native caption is removed in favor of your Flutter chrome, while the system keeps the non-client frame (border, shadow, rounded corners). The default is **frameless** chrome (client area fills the outer frame). Overlay flags (`transparentBackdrop`, `mousePassthrough`) also select frameless mode.
+
+On Windows, frameless mode schedules size correction automatically after the first frame. For transparent toolbars, pass `transparentBackdrop: true` (and optionally `frame` in physical pixels). Prefer `enableCustomWindow(...)` over a separate `configureFramelessWindow(...)` call.
 
 **Drawing overlay (near-fullscreen, click-through):**
 
@@ -42,6 +45,50 @@ controller.enableCustomWindow(
 ```
 
 Toggle passthrough at runtime with `controller.setIgnoresMouseEvents(true|false)`.
+
+### Win32 satellite windows (tooltips / popups)
+
+When a frameless toolbar hosts `TooltipWindowController` or `PopupWindowController` children, Flutter cannot place them below the toolbar with a positive Y offset via `WindowPositioner.offset` alone (anchor Y is clamped to the parent client rect). Use the **Flutter reference pattern** from `examples/multiple_windows`:
+
+```dart
+import 'package:window_toolbox/window_toolbox.dart';
+
+// Satellite root — autosize like Flutter's popup example:
+Overlay.wrap(
+  alwaysSizeToContent: true,
+  child: Material(
+    type: MaterialType.transparency,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Text('Hello')],
+    ),
+  ),
+)
+
+// Default constraints (do not pass maxWidth: 280 unless you must):
+final controller = TooltipWindowController(
+  parent: toolbarController,
+  anchorRect: buttonAnchorInParentSpace,
+  positioner: const WindowPositioner(
+    parentAnchor: WindowPositionerAnchor.bottomRight,
+    childAnchor: WindowPositionerAnchor.topRight,
+  ),
+  // preferredConstraints defaults to BoxConstraints()
+  delegate: delegate,
+);
+
+// Y gap below frameless toolbar (X stays with the engine positioner):
+_maintainer = attachWin32SatelliteMaintainer(
+  parent: toolbarController,
+  child: controller,
+  placement: Win32SatellitePlacement.trailing(gapLogical: 20),
+  existing: _maintainer,
+);
+```
+
+Track the anchor with `ElementPositionTracker` (see `example/lib/element_position_tracker.dart`) and call `updatePosition` when the button moves. For loose `maxWidth` caps without `Overlay.wrap`, use `Win32SatelliteTightSize` or `Win32SatellitePlacement.nativeTrailing`.
+
+Call `Win32SatelliteGapController.dispose()` before hiding or destroying the child. See `example/lib/main_transparent_gap_matrix.dart` for a side-by-side comparison and `example/lib/main_transparent.dart` for a production toolbar demo.
 
 Once that is done, you can place various widgets in your widget tree to build draggable areas, traffic light buttons (macOS) or window buttons:
 
