@@ -289,6 +289,7 @@ void scheduleWin32FramelessSetupForHwnd(
   bool fullscreenCompatibleTopmost = true,
   bool useLifecycleTransparentEffect = false,
   bool allowKeyboardFocus = false,
+  bool revealAfterSetup = false,
 }) {
   if (hwnd.isNull) {
     return;
@@ -322,6 +323,10 @@ void scheduleWin32FramelessSetupForHwnd(
   }
   if (allowKeyboardFocus) {
     state.allowKeyboardFocus = true;
+  }
+  if (revealAfterSetup) {
+    state.revealAfterSetup = true;
+    state.overlaySatellite = true;
   }
 
   if (state.applyScheduled) {
@@ -365,6 +370,7 @@ void scheduleWin32FramelessSetup(
   bool fullscreenCompatibleTopmost = true,
   bool useLifecycleTransparentEffect = false,
   bool allowKeyboardFocus = false,
+  bool revealAfterSetup = false,
 }) {
   try {
     final hwnd = HWND(controller.windowHandle);
@@ -382,6 +388,7 @@ void scheduleWin32FramelessSetup(
       fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
       useLifecycleTransparentEffect: useLifecycleTransparentEffect,
       allowKeyboardFocus: allowKeyboardFocus,
+      revealAfterSetup: revealAfterSetup,
     );
   } on StateError {
     return;
@@ -392,6 +399,7 @@ void scheduleWin32FramelessSetupFromOptions(
   WindowControllerWin32 controller,
   CustomWindowInitOptions options, {
   bool compensateSize = false,
+  bool revealAfterSetup = false,
 }) {
   scheduleWin32FramelessSetup(
     controller,
@@ -403,6 +411,7 @@ void scheduleWin32FramelessSetupFromOptions(
     alwaysOnTop: options.alwaysOnTop,
     fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
     allowKeyboardFocus: options.allowKeyboardFocus,
+    revealAfterSetup: revealAfterSetup,
   );
 }
 
@@ -416,6 +425,8 @@ class _Win32FramelessSetupPending {
   bool alwaysOnTop = false;
   bool fullscreenCompatibleTopmost = true;
   bool allowKeyboardFocus = false;
+  bool revealAfterSetup = false;
+  bool overlaySatellite = false;
   Rect? frame;
 }
 
@@ -426,6 +437,9 @@ void _applyWin32FramelessSetupForHwnd(
   if (hwnd.isNull || !IsWindow(hwnd)) {
     return;
   }
+
+  final needsFramelessRefresh = state.overlaySatellite;
+  final revealAfterSetup = state.revealAfterSetup;
 
   bool didSetGeometry = false;
 
@@ -475,6 +489,14 @@ void _applyWin32FramelessSetupForHwnd(
   if (state.mousePassthrough) {
     state.mousePassthrough = false;
     _scheduleLayeredMousePassthrough(hwnd);
+  }
+
+  if (needsFramelessRefresh) {
+    refreshFramelessChromeForHwnd(hwnd);
+  }
+  if (revealAfterSetup) {
+    state.revealAfterSetup = false;
+    ShowWindow(hwnd, SW_SHOW);
   }
 }
 

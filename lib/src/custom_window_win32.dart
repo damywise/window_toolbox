@@ -95,7 +95,9 @@ class CustomWindowWin32 extends CustomWindow {
     this._options = CustomWindowInitOptions.none,
   }) : _isFrameless = _options.isFrameless {
     controller.addWindowsMessageHandler(handleWindowsMessage);
-    _ensureResizeChromeStyle(_hwnd);
+    if (!_options.skipClassicResizeChrome) {
+      _ensureResizeChromeStyle(_hwnd);
+    }
 
     _flutterView = _findFlutterView();
 
@@ -107,7 +109,11 @@ class CustomWindowWin32 extends CustomWindow {
     );
 
     if (_isFrameless) {
-      ShowWindow(_hwnd, SW_SHOW);
+      // Resizable titleless windows (toolbar) show immediately; overlay
+      // satellites defer until frameless chrome is applied.
+      if (!_needsDeferredWin32Setup || !_options.skipClassicResizeChrome) {
+        ShowWindow(_hwnd, SW_SHOW);
+      }
     }
 
     if (_needsDeferredWin32Setup) {
@@ -115,6 +121,8 @@ class CustomWindowWin32 extends CustomWindow {
         controller,
         _options,
         compensateSize: _isFrameless && _options.frame == null,
+        revealAfterSetup:
+            _isFrameless && _options.skipClassicResizeChrome,
       );
     }
   }

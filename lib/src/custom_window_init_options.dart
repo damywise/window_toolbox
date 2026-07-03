@@ -34,6 +34,12 @@ class CustomWindowInitOptions {
   bool get isFrameless =>
       !titleless || transparentBackdrop || mousePassthrough;
 
+  /// Overlay satellites (dialog, drawing) skip classic WS_CAPTION resize
+  /// chrome. Resizable windows like the toolbar keep resize chrome even with
+  /// [transparentBackdrop].
+  bool get skipClassicResizeChrome =>
+      mousePassthrough || (transparentBackdrop && hideFromSwitcher);
+
   static const none = CustomWindowInitOptions();
 
   CustomWindowInitOptions merge(CustomWindowInitOptions other) {
