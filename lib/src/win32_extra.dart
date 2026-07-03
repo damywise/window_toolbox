@@ -98,6 +98,11 @@ extension WindowControllerWin32Extension on WindowControllerWin32 {
     );
   }
 
+  /// Re-applies backdrop and switcher only (no topmost / z-order).
+  void reapplyWin32Backdrop() {
+    CustomWindow.reapplyWin32Backdrop(this);
+  }
+
   /// Re-applies backdrop, switcher, and topmost from the last [enableCustomWindow]
   /// options. Useful after [bringToFront].
   void reapplyWin32Chrome() {

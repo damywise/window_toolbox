@@ -1,14 +1,16 @@
 import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/src/widgets/_window_macos.dart';
-import 'package:flutter/src/widgets/_window_win32.dart';
+import 'package:flutter/src/widgets/_window_win32.dart' hide HWND;
 import 'package:flutter/src/widgets/_window_linux.dart';
 import 'package:flutter/widgets.dart';
+import 'package:win32/win32.dart';
 
 import 'custom_window_init_options.dart';
 import 'custom_window_macos.dart';
 import 'custom_window_win32.dart';
 import 'custom_window_linux.dart';
 import 'win32_frameless_setup.dart';
+import 'win32_window_chrome.dart';
 import 'widgets.dart' show WindowTrafficLightInactiveConfigration;
 
 /// Platform window chrome customization backing [enableCustomWindow].
@@ -93,6 +95,15 @@ abstract class CustomWindow {
     }
   }
 
+  /// Re-applies Win32 backdrop and switcher flags only (no topmost / z-order).
+  static void reapplyWin32Backdrop(WindowControllerWin32 controller) {
+    final options = _appliedInitOptionsByHandle[controller.windowHandle.address];
+    if (options == null) {
+      return;
+    }
+    reapplyWin32BackdropFromOptions(controller, options);
+  }
+
   /// Re-applies Win32 backdrop, switcher, and topmost flags from the last
   /// [enableCustomWindow] / [configureFramelessWindow] options. Does not
   /// re-schedule mouse passthrough delays.
@@ -114,6 +125,43 @@ abstract class CustomWindow {
     if (customWindow is CustomWindowWin32) {
       customWindow.setIgnoresMouseEvents(ignores);
     }
+
+    if (!ignores && controller is WindowControllerWin32) {
+      final handle = hwndAddressFor(controller);
+      if (handle != null) {
+        final options =
+            _appliedInitOptionsByHandle[handle] ?? CustomWindowInitOptions.none;
+        if (!options.allowKeyboardFocus) {
+          preserveNoActivateForHwnd(
+            HWND((controller as WindowControllerWin32).windowHandle),
+          );
+        }
+      }
+    }
+  }
+
+  /// Win32-only: toggles whether transparent-backdrop windows accept keyboard
+  /// focus. Updates stored init options and syncs [WS_EX_NOACTIVATE] immediately.
+  static void setAllowKeyboardFocus(
+    BaseWindowController controller,
+    bool allow,
+  ) {
+    if (controller is! WindowControllerWin32) {
+      return;
+    }
+    final win32Controller = controller as WindowControllerWin32;
+    final handle = hwndAddressFor(controller);
+    if (handle == null) {
+      return;
+    }
+    final current =
+        _appliedInitOptionsByHandle[handle] ?? CustomWindowInitOptions.none;
+    _appliedInitOptionsByHandle[handle] =
+        current.copyWith(allowKeyboardFocus: allow);
+    applyNoActivatePolicyForHwnd(
+      HWND(win32Controller.windowHandle),
+      allowKeyboardFocus: allow,
+    );
   }
 
   static final _expando = Expando<CustomWindow>('CustomWindow');

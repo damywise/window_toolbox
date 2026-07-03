@@ -44,4 +44,20 @@ void main() {
     final madeLParam = makeLParam(x, y);
     expect(madeLParam & 0xFFFFFFFF, equals(lparam & 0xFFFFFFFF));
   });
+
+  test('maximizeClientRect uses rcWork when provided', () {
+    const proposed = (left: -8, top: -8, right: 1928, bottom: 1048);
+    const rcWork = (left: 0, top: 0, right: 1920, bottom: 1040);
+
+    expect(maximizeClientRect(proposed, rcWork: rcWork), equals(rcWork));
+  });
+
+  test('maximizeClientRect applies symmetric border fallback', () {
+    const proposed = (left: 0, top: 0, right: 1920, bottom: 1080);
+
+    expect(
+      maximizeClientRect(proposed),
+      equals((left: -8, top: -8, right: 1928, bottom: 1088)),
+    );
+  });
 }

@@ -72,11 +72,29 @@ void refreshWindowSizeForHwnd(HWND hwnd) {
       rect.ref.top,
       rect.ref.right - rect.ref.left,
       rect.ref.bottom - rect.ref.top,
-      SWP_NOMOVE | SWP_NOACTIVATE,
+      SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
     );
   } finally {
     calloc.free(rect);
   }
+}
+
+/// Re-runs [WM_NCCALCSIZE] so frameless chrome stays correct after maximize
+/// transitions (including drag-restore from maximized).
+void refreshFramelessChromeForHwnd(HWND hwnd) {
+  SetWindowPos(
+    hwnd,
+    null,
+    0,
+    0,
+    0,
+    0,
+    SWP_FRAMECHANGED |
+        SWP_NOMOVE |
+        SWP_NOSIZE |
+        SWP_NOZORDER |
+        SWP_NOACTIVATE,
+  );
 }
 
 // -- DWM transparent effect (lifecycle WindowEffect::Transparent) --
@@ -221,6 +239,7 @@ void scheduleWin32FramelessSetupForSatellite(
   bool hideFromSwitcher = false,
   bool alwaysOnTop = false,
   bool fullscreenCompatibleTopmost = true,
+  bool allowKeyboardFocus = false,
 }) {
   final hwnd = hwndForController(controller);
   if (hwnd == null) {
@@ -235,6 +254,7 @@ void scheduleWin32FramelessSetupForSatellite(
     hideFromSwitcher: hideFromSwitcher,
     alwaysOnTop: alwaysOnTop,
     fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
+    allowKeyboardFocus: allowKeyboardFocus,
   );
 }
 
@@ -252,6 +272,7 @@ void scheduleWin32FramelessSetupFromOptionsForSatellite(
     hideFromSwitcher: options.hideFromSwitcher,
     alwaysOnTop: options.alwaysOnTop,
     fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
+    allowKeyboardFocus: options.allowKeyboardFocus,
   );
 }
 
@@ -267,6 +288,7 @@ void scheduleWin32FramelessSetupForHwnd(
   bool alwaysOnTop = false,
   bool fullscreenCompatibleTopmost = true,
   bool useLifecycleTransparentEffect = false,
+  bool allowKeyboardFocus = false,
 }) {
   if (hwnd.isNull) {
     return;
@@ -297,6 +319,9 @@ void scheduleWin32FramelessSetupForHwnd(
   if (alwaysOnTop) {
     state.alwaysOnTop = true;
     state.fullscreenCompatibleTopmost = fullscreenCompatibleTopmost;
+  }
+  if (allowKeyboardFocus) {
+    state.allowKeyboardFocus = true;
   }
 
   if (state.applyScheduled) {
@@ -339,6 +364,7 @@ void scheduleWin32FramelessSetup(
   bool alwaysOnTop = false,
   bool fullscreenCompatibleTopmost = true,
   bool useLifecycleTransparentEffect = false,
+  bool allowKeyboardFocus = false,
 }) {
   try {
     final hwnd = HWND(controller.windowHandle);
@@ -355,6 +381,7 @@ void scheduleWin32FramelessSetup(
       alwaysOnTop: alwaysOnTop,
       fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
       useLifecycleTransparentEffect: useLifecycleTransparentEffect,
+      allowKeyboardFocus: allowKeyboardFocus,
     );
   } on StateError {
     return;
@@ -375,6 +402,7 @@ void scheduleWin32FramelessSetupFromOptions(
     hideFromSwitcher: options.hideFromSwitcher,
     alwaysOnTop: options.alwaysOnTop,
     fullscreenCompatibleTopmost: options.fullscreenCompatibleTopmost,
+    allowKeyboardFocus: options.allowKeyboardFocus,
   );
 }
 
@@ -387,6 +415,7 @@ class _Win32FramelessSetupPending {
   bool hideFromSwitcher = false;
   bool alwaysOnTop = false;
   bool fullscreenCompatibleTopmost = true;
+  bool allowKeyboardFocus = false;
   Rect? frame;
 }
 
@@ -422,7 +451,10 @@ void _applyWin32FramelessSetupForHwnd(
     state.transparentBackdrop = false;
   } else if (state.transparentBackdrop) {
     enableTransparentBackdropForHwnd(hwnd);
-    preserveNoActivateForHwnd(hwnd);
+    applyNoActivatePolicyForHwnd(
+      hwnd,
+      allowKeyboardFocus: state.allowKeyboardFocus,
+    );
     state.transparentBackdrop = false;
   }
 
@@ -446,11 +478,8 @@ void _applyWin32FramelessSetupForHwnd(
   }
 }
 
-/// Re-applies backdrop / switcher / topmost from stored init options.
-///
-/// Use after z-order changes (e.g. [bringToFront]) so overlay chrome stays
-/// correct. Does not re-trigger [mousePassthrough] layering delays.
-void reapplyWin32ChromeFromOptions(
+/// Re-applies backdrop / switcher only — no topmost / z-order APIs.
+void reapplyWin32BackdropFromOptions(
   WindowControllerWin32 controller,
   CustomWindowInitOptions options,
 ) {
@@ -466,18 +495,42 @@ void reapplyWin32ChromeFromOptions(
 
   if (options.transparentBackdrop) {
     enableTransparentBackdropForHwnd(hwnd);
-    preserveNoActivateForHwnd(hwnd);
+    applyNoActivatePolicyForHwnd(
+      hwnd,
+      allowKeyboardFocus: options.allowKeyboardFocus,
+    );
   }
   if (options.hideFromSwitcher) {
     setHideFromSwitcherForHwnd(hwnd, true);
   }
-  if (options.alwaysOnTop) {
-    setAlwaysOnTopForHwnd(
-      hwnd,
-      true,
-      fullscreenCompatible: options.fullscreenCompatibleTopmost,
-    );
+}
+
+/// Re-applies backdrop / switcher / topmost from stored init options.
+///
+/// Use after z-order changes (e.g. [bringToFront]) so overlay chrome stays
+/// correct. Does not re-trigger [mousePassthrough] layering delays.
+void reapplyWin32ChromeFromOptions(
+  WindowControllerWin32 controller,
+  CustomWindowInitOptions options,
+) {
+  reapplyWin32BackdropFromOptions(controller, options);
+  if (!options.alwaysOnTop) {
+    return;
   }
+  final HWND hwnd;
+  try {
+    hwnd = HWND(controller.windowHandle);
+  } on StateError {
+    return;
+  }
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
+  setAlwaysOnTopForHwnd(
+    hwnd,
+    true,
+    fullscreenCompatible: options.fullscreenCompatibleTopmost,
+  );
 }
 
 /// Layered passthrough after DWM backdrop — matches overlay matrix variants E/F.

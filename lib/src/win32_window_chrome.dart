@@ -113,6 +113,36 @@ void setWindowAlphaForHwnd(HWND hwnd, int alpha) {
   SetLayeredWindowAttributes(hwnd, COLORREF(0), clamped, LWA_ALPHA);
 }
 
+/// Applies fullscreen-compatible tool-window ex-styles without changing z-order.
+void applyTopmostExStylesForHwnd(
+  HWND hwnd, {
+  required bool fullscreenCompatible,
+}) {
+  if (hwnd.isNull || !IsWindow(hwnd) || !fullscreenCompatible) {
+    return;
+  }
+
+  var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+  final hasToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+  final hasAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+  if (hasToolWindow && !hasAppWindow) {
+    return;
+  }
+
+  exStyle |= WS_EX_TOOLWINDOW;
+  exStyle &= ~WS_EX_APPWINDOW;
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
+  SetWindowPos(
+    hwnd,
+    null,
+    0,
+    0,
+    0,
+    0,
+    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE,
+  );
+}
+
 /// Brings [hwnd] to the front without activating it.
 void bringToFrontForHwnd(HWND hwnd) {
   if (hwnd.isNull || !IsWindow(hwnd)) {
@@ -151,4 +181,37 @@ void preserveNoActivateForHwnd(HWND hwnd) {
     0,
     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
   );
+}
+
+/// Clears [WS_EX_NOACTIVATE] so the HWND can receive keyboard focus.
+void clearNoActivateForHwnd(HWND hwnd) {
+  if (hwnd.isNull || !IsWindow(hwnd)) {
+    return;
+  }
+
+  var exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).value;
+  if ((exStyle & WS_EX_NOACTIVATE) == 0) {
+    return;
+  }
+
+  exStyle &= ~WS_EX_NOACTIVATE;
+  SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
+  SetWindowPos(
+    hwnd,
+    null,
+    0,
+    0,
+    0,
+    0,
+    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+  );
+}
+
+/// Applies NOACTIVATE policy for transparent-backdrop windows.
+void applyNoActivatePolicyForHwnd(HWND hwnd, {required bool allowKeyboardFocus}) {
+  if (allowKeyboardFocus) {
+    clearNoActivateForHwnd(hwnd);
+  } else {
+    preserveNoActivateForHwnd(hwnd);
+  }
 }

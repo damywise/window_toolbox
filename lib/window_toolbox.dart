@@ -22,8 +22,8 @@ extension CustomWindowExtension on BaseWindowController {
   /// (`transparentBackdrop`, `mousePassthrough`) also select frameless mode.
   ///
   /// Optional [frame], [transparentBackdrop], [mousePassthrough],
-  /// [hideFromSwitcher], and [alwaysOnTop] are applied during deferred setup
-  /// after the first frame.
+  /// [hideFromSwitcher], [alwaysOnTop], and [allowKeyboardFocus] are applied
+  /// during deferred setup after the first frame.
   void enableCustomWindow({
     Rect? frame,
     bool titleless = false,
@@ -32,6 +32,7 @@ extension CustomWindowExtension on BaseWindowController {
     bool hideFromSwitcher = false,
     bool alwaysOnTop = false,
     bool fullscreenCompatibleTopmost = true,
+    bool allowKeyboardFocus = false,
   }) {
     CustomWindow.init(
       this,
@@ -43,6 +44,7 @@ extension CustomWindowExtension on BaseWindowController {
         hideFromSwitcher: hideFromSwitcher,
         alwaysOnTop: alwaysOnTop,
         fullscreenCompatibleTopmost: fullscreenCompatibleTopmost,
+        allowKeyboardFocus: allowKeyboardFocus,
       ),
     );
   }
@@ -67,5 +69,10 @@ extension CustomWindowExtension on BaseWindowController {
   /// Win32-only: lifecycle-exact layered click-through toggle.
   void setIgnoresMouseEvents(bool ignores) {
     CustomWindow.setIgnoresMouseEvents(this, ignores);
+  }
+
+  /// Win32-only: allow or deny keyboard focus on transparent-backdrop windows.
+  void setAllowKeyboardFocus(bool allow) {
+    CustomWindow.setAllowKeyboardFocus(this, allow);
   }
 }

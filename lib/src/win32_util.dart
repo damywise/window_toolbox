@@ -73,9 +73,196 @@ external int _TrackMouseEvent(Pointer<TRACKMOUSEEVENT> lpEventTrack);
 bool TrackMouseEvent(Pointer<TRACKMOUSEEVENT> lpEventTrack) =>
     _TrackMouseEvent(lpEventTrack) != FALSE;
 
+/// Screen-coordinate rectangle used by Win32 maximize helpers.
+typedef Win32IntRect = ({int left, int top, int right, int bottom});
+
+/// [NCCALCSIZE_PARAMS.rgrc] slot 0 as a native [RECT] pointer.
+Pointer<RECT> nccalcsizeProposedClientRect(Pointer<NCCALCSIZE_PARAMS> params) =>
+    Pointer<RECT>.fromAddress(params.address);
+
+/// Returns whether [hwnd] is maximized using Win32 placement state.
+bool isWindowMaximizedForHwnd(HWND hwnd) {
+  if (IsZoomed(hwnd)) {
+    return true;
+  }
+  final placement = calloc<WINDOWPLACEMENT>()
+    ..ref.length = sizeOf<WINDOWPLACEMENT>();
+  try {
+    if (!GetWindowPlacement(hwnd, placement).value) {
+      return false;
+    }
+    return placement.ref.showCmd == SW_MAXIMIZE;
+  } finally {
+    calloc.free(placement);
+  }
+}
+
+/// True when [proposed] extends past the nearest monitor [MONITORINFO.rcWork].
+bool proposedFrameExtendsBeyondWorkArea(Win32IntRect proposed) {
+  final frameRectPtr = calloc<RECT>()
+    ..ref.left = proposed.left
+    ..ref.top = proposed.top
+    ..ref.right = proposed.right
+    ..ref.bottom = proposed.bottom;
+  try {
+    final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
+    if (monitor.isNull) {
+      return false;
+    }
+    final monitorInfo = calloc<MONITORINFO>()
+      ..ref.cbSize = sizeOf<MONITORINFO>();
+    try {
+      if (!GetMonitorInfo(monitor, monitorInfo)) {
+        return false;
+      }
+      final work = monitorInfo.ref.rcWork;
+      return proposed.left < work.left ||
+          proposed.top < work.top ||
+          proposed.right > work.right ||
+          proposed.bottom > work.bottom;
+    } finally {
+      calloc.free(monitorInfo);
+    }
+  } finally {
+    calloc.free(frameRectPtr);
+  }
+}
+
+/// Client rect for a maximized frameless window (8 px fallback only).
+Win32IntRect maximizeClientRect(Win32IntRect proposed, {Win32IntRect? rcWork}) {
+  if (rcWork != null) {
+    return rcWork;
+  }
+  const l = 8;
+  const t = 8;
+  return (
+    left: proposed.left - l,
+    top: proposed.top - t,
+    right: proposed.right + l,
+    bottom: proposed.bottom + t,
+  );
+}
+
+void writeNccalcsizeProposedClientRect(
+  Pointer<NCCALCSIZE_PARAMS> params,
+  Win32IntRect rect,
+) {
+  final rgrc0 = nccalcsizeProposedClientRect(params);
+  rgrc0.ref.left = rect.left;
+  rgrc0.ref.top = rect.top;
+  rgrc0.ref.right = rect.right;
+  rgrc0.ref.bottom = rect.bottom;
+}
+
+/// Pure-Dart form of window_manager maximize inset math (for tests).
+Win32IntRect windowManagerMaximizeClientRect(
+  Win32IntRect proposed,
+  Win32IntRect rcWork,
+) {
+  final l = proposed.left - rcWork.left;
+  final t = proposed.top - rcWork.top;
+  return (
+    left: proposed.left - l,
+    top: proposed.top - t,
+    right: proposed.right + l,
+    bottom: proposed.bottom + t,
+  );
+}
+
+/// window_manager inset math: shrink extended maximize frame to [rcWork].
+void applyWindowManagerMaximizeInsets(
+  Pointer<RECT> rgrc0,
+  Win32IntRect rcWork,
+) {
+  final adjusted = windowManagerMaximizeClientRect(
+    (
+      left: rgrc0.ref.left,
+      top: rgrc0.ref.top,
+      right: rgrc0.ref.right,
+      bottom: rgrc0.ref.bottom,
+    ),
+    rcWork,
+  );
+  rgrc0.ref.left = adjusted.left;
+  rgrc0.ref.top = adjusted.top;
+  rgrc0.ref.right = adjusted.right;
+  rgrc0.ref.bottom = adjusted.bottom;
+}
+
+/// Shrinks [NCCALCSIZE_PARAMS.rgrc] slot 0 to the nearest monitor work area.
+void adjustMaximizedNccalcsizeClientRect(Pointer<NCCALCSIZE_PARAMS> params) {
+  final rgrc0 = nccalcsizeProposedClientRect(params);
+  final proposed = (
+    left: rgrc0.ref.left,
+    top: rgrc0.ref.top,
+    right: rgrc0.ref.right,
+    bottom: rgrc0.ref.bottom,
+  );
+
+  final frameRectPtr = calloc<RECT>()..ref = rgrc0.ref;
+  try {
+    final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
+    if (!monitor.isNull) {
+      final monitorInfo = calloc<MONITORINFO>()
+        ..ref.cbSize = sizeOf<MONITORINFO>();
+      try {
+        if (GetMonitorInfo(monitor, monitorInfo)) {
+          final work = monitorInfo.ref.rcWork;
+          applyWindowManagerMaximizeInsets(
+            rgrc0,
+            (
+              left: work.left,
+              top: work.top,
+              right: work.right,
+              bottom: work.bottom,
+            ),
+          );
+          return;
+        }
+      } finally {
+        calloc.free(monitorInfo);
+      }
+    }
+  } finally {
+    calloc.free(frameRectPtr);
+  }
+
+  writeNccalcsizeProposedClientRect(params, maximizeClientRect(proposed));
+}
+
+/// Sets [WM_GETMINMAXINFO] maximize position/size to the monitor work area.
+void adjustFramelessMinMaxInfo(HWND hwnd, Pointer<MINMAXINFO> info) {
+  DefWindowProc(hwnd, WM_GETMINMAXINFO, WPARAM(0), LPARAM(info.address));
+
+  final windowRect = calloc<RECT>();
+  try {
+    GetWindowRect(hwnd, windowRect);
+    final monitor = MonitorFromRect(windowRect, MONITOR_DEFAULTTONEAREST);
+    if (monitor.isNull) {
+      return;
+    }
+    final monitorInfo = calloc<MONITORINFO>()
+      ..ref.cbSize = sizeOf<MONITORINFO>();
+    try {
+      if (!GetMonitorInfo(monitor, monitorInfo)) {
+        return;
+      }
+      final work = monitorInfo.ref.rcWork;
+      final monitorRect = monitorInfo.ref.rcMonitor;
+      info.ref.ptMaxPosition.x = work.left - monitorRect.left;
+      info.ref.ptMaxPosition.y = work.top - monitorRect.top;
+      info.ref.ptMaxSize.x = work.right - work.left;
+      info.ref.ptMaxSize.y = work.bottom - work.top;
+    } finally {
+      calloc.free(monitorInfo);
+    }
+  } finally {
+    calloc.free(windowRect);
+  }
+}
+
 final int Function(Pointer<Void>) flutterDesktopDpiForHwnd =
     DynamicLibrary.process().lookupFunction<
       Uint32 Function(Pointer<Void>),
       int Function(Pointer<Void>)
     >('FlutterDesktopGetDpiForHWND');
-

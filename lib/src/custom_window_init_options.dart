@@ -10,6 +10,7 @@ class CustomWindowInitOptions {
     this.hideFromSwitcher = false,
     this.alwaysOnTop = false,
     this.fullscreenCompatibleTopmost = true,
+    this.allowKeyboardFocus = false,
   });
 
   final Rect? frame;
@@ -23,6 +24,10 @@ class CustomWindowInitOptions {
   final bool hideFromSwitcher;
   final bool alwaysOnTop;
   final bool fullscreenCompatibleTopmost;
+
+  /// When true, transparent-backdrop windows skip [WS_EX_NOACTIVATE] so text
+  /// fields can receive keyboard focus. Overlays default to false.
+  final bool allowKeyboardFocus;
 
   /// Full frameless mode: client fills the outer frame and native NC chrome is
   /// suppressed. Implied when [titleless] is false or overlay flags are set.
@@ -40,6 +45,30 @@ class CustomWindowInitOptions {
       hideFromSwitcher: hideFromSwitcher || other.hideFromSwitcher,
       alwaysOnTop: alwaysOnTop || other.alwaysOnTop,
       fullscreenCompatibleTopmost: other.fullscreenCompatibleTopmost,
+      allowKeyboardFocus: allowKeyboardFocus || other.allowKeyboardFocus,
+    );
+  }
+
+  CustomWindowInitOptions copyWith({
+    Rect? frame,
+    bool? titleless,
+    bool? transparentBackdrop,
+    bool? mousePassthrough,
+    bool? hideFromSwitcher,
+    bool? alwaysOnTop,
+    bool? fullscreenCompatibleTopmost,
+    bool? allowKeyboardFocus,
+  }) {
+    return CustomWindowInitOptions(
+      frame: frame ?? this.frame,
+      titleless: titleless ?? this.titleless,
+      transparentBackdrop: transparentBackdrop ?? this.transparentBackdrop,
+      mousePassthrough: mousePassthrough ?? this.mousePassthrough,
+      hideFromSwitcher: hideFromSwitcher ?? this.hideFromSwitcher,
+      alwaysOnTop: alwaysOnTop ?? this.alwaysOnTop,
+      fullscreenCompatibleTopmost:
+          fullscreenCompatibleTopmost ?? this.fullscreenCompatibleTopmost,
+      allowKeyboardFocus: allowKeyboardFocus ?? this.allowKeyboardFocus,
     );
   }
 }

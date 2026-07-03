@@ -186,51 +186,32 @@ class CustomWindowWin32 extends CustomWindow {
     final borderTB =
         GetSystemMetricsForDpi(SM_CYFRAME, dpi).value + padding;
     final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
-    final rect = params.ref.rgrc[0];
+    final rect = nccalcsizeProposedClientRect(params);
     final scale = dpi / 96.0;
-    if (IsZoomed(windowHandle)) {
-      rect.top += borderTB;
+    if (isWindowMaximizedForHwnd(windowHandle)) {
+      rect.ref.top += borderTB;
     } else {
       // Otherwise we miss one pixel from top.
-      rect.top += (1 * scale).round();
+      rect.ref.top += (1 * scale).round();
     }
-    rect.left += borderLR;
-    rect.right -= borderLR;
-    rect.bottom -= borderTB;
+    rect.ref.left += borderLR;
+    rect.ref.right -= borderLR;
+    rect.ref.bottom -= borderTB;
     return 0;
   }
 
   /// Compensates for off-screen borders when maximized. See window_manager's
   /// adjustNCCALCSIZE and MonitorFromRect vs MonitorFromWindow notes.
   static void _adjustNccalcsizeForMaximized(Pointer<NCCALCSIZE_PARAMS> params) {
-    var leftInset = 8;
-    var topInset = 8;
+    adjustMaximizedNccalcsizeClientRect(params);
+  }
 
-    final frameRect = params.ref.rgrc[0];
-    final frameRectPtr = calloc<RECT>();
-    try {
-      frameRectPtr.ref = frameRect;
-      final monitor = MonitorFromRect(frameRectPtr, MONITOR_DEFAULTTONEAREST);
-      if (!monitor.isNull) {
-        final monitorInfo = calloc<MONITORINFO>();
-        try {
-          monitorInfo.ref.cbSize = sizeOf<MONITORINFO>();
-          if (GetMonitorInfo(monitor, monitorInfo)) {
-            leftInset = frameRect.left - monitorInfo.ref.rcWork.left;
-            topInset = frameRect.top - monitorInfo.ref.rcWork.top;
-          }
-        } finally {
-          calloc.free(monitorInfo);
-        }
-      }
-    } finally {
-      calloc.free(frameRectPtr);
-    }
+  static bool _shouldInsetMaximizedClient(HWND hwnd) {
+    return isWindowMaximizedForHwnd(hwnd);
+  }
 
-    frameRect.top += topInset;
-    frameRect.left += leftInset;
-    frameRect.bottom -= leftInset;
-    frameRect.right -= leftInset;
+  static void _refreshFramelessChrome(HWND hwnd) {
+    refreshFramelessChromeForHwnd(hwnd);
   }
 
   final _dragExcludeRects = <BuildContext, Rect>{};
@@ -275,6 +256,8 @@ class CustomWindowWin32 extends CustomWindow {
   }
 
   bool _trackingMouseLeave = false;
+  bool _inSizeMove = false;
+  bool _wasMaximized = false;
 
   void setIgnoresMouseEvents(bool ignores) {
     setIgnoresMouseEventsForHwnd(_hwnd, ignores);
@@ -413,20 +396,54 @@ class CustomWindowWin32 extends CustomWindow {
           return 0;
         }
         break;
+      case WM_GETMINMAXINFO:
+        if (_isFrameless) {
+          adjustFramelessMinMaxInfo(
+            _hwnd,
+            Pointer<MINMAXINFO>.fromAddress(lParam),
+          );
+          return 0;
+        }
+        break;
       case WM_SIZE:
         // This would cause Flutter relayout with a very small size.
         if (wParam == SIZE_MINIMIZED) return 0;
+        if (_isFrameless) {
+          if (wParam == SIZE_MAXIMIZED) {
+            _wasMaximized = true;
+            _refreshFramelessChrome(_hwnd);
+          } else if (wParam == SIZE_RESTORED && _wasMaximized) {
+            _wasMaximized = false;
+            _refreshFramelessChrome(_hwnd);
+          }
+        }
+        break;
+      case WM_ENTERSIZEMOVE:
+        _inSizeMove = true;
+        break;
+      case WM_EXITSIZEMOVE:
+        _inSizeMove = false;
+        if (_isFrameless) {
+          _refreshFramelessChrome(_hwnd);
+        }
         break;
       case WM_NCCALCSIZE:
-        if (wParam == 1) {
-          if (_isFrameless) {
-            // Frameless: client fills the outer frame (zero NC inset).
-            if (IsZoomed(_hwnd)) {
-              final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
+        if (_isFrameless) {
+          if (wParam == 1) {
+            final params = Pointer<NCCALCSIZE_PARAMS>.fromAddress(lParam);
+            if (_shouldInsetMaximizedClient(_hwnd)) {
               _adjustNccalcsizeForMaximized(params);
             }
             return 0;
           }
+          // During drag (incl. drag-restore from maximized), swallow wParam=0
+          // so DefWindowProc does not redraw the native caption.
+          if (_inSizeMove) {
+            return 0;
+          }
+          break;
+        }
+        if (wParam == 1) {
           return _applyTitlelessNccalcsize(windowHandle, lParam);
         }
         break;

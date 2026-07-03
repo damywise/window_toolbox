@@ -7,6 +7,14 @@ analyzer:
   errors:
     implementation_imports: ignore
     invalid_use_of_internal_member: ignore
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**
 
 formatter:
   trailing_commas: preserve
