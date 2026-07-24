@@ -75,6 +75,35 @@ external void cw_nswindow_init_delegate(
   cw_delegate_config_t config,
 );
 
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
+external void cw_nswindow_set_alpha(
+  ffi.Pointer<ffi.Void> ns_window,
+  double alpha,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int)>()
+external void cw_nswindow_set_level(
+  ffi.Pointer<ffi.Void> ns_window,
+  int level,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external void cw_nswindow_set_ignores_mouse_events(
+  ffi.Pointer<ffi.Void> ns_window,
+  bool ignores,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
+external void cw_nswindow_set_corner_radius(
+  ffi.Pointer<ffi.Void> ns_window,
+  double radius,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_set_background_clear(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, cw_rect_t)>()
 external void cw_nswindow_set_frame(
   ffi.Pointer<ffi.Void> ns_window,

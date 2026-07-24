@@ -84,6 +84,12 @@ EXPORT void cw_nswindow_init_delegate(void *ns_window,
 EXPORT void cw_nswindow_set_frame(void *ns_window, cw_rect_t frame);
 EXPORT cw_rect_t cw_nswindow_get_frame(void *ns_window);
 
+EXPORT void cw_nswindow_set_alpha(void *ns_window, double alpha);
+EXPORT void cw_nswindow_set_level(void *ns_window, int level);
+EXPORT void cw_nswindow_set_ignores_mouse_events(void *ns_window, bool ignores);
+EXPORT void cw_nswindow_set_corner_radius(void *ns_window, double radius);
+EXPORT void cw_nswindow_set_background_clear(void *ns_window);
+
 #ifdef __cplusplus
 }
 #endif

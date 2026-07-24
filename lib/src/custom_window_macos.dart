@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter/src/widgets/_window_macos.dart';
 
 import 'custom_window.dart';
+import 'custom_window_init_options.dart';
 import 'invert_rectanges.dart';
 import 'macos.g.dart';
 import 'macos_extra.dart';
@@ -13,8 +14,28 @@ import 'dart:ffi' hide Size;
 import 'package:ffi/ffi.dart' as ffi;
 
 class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
-  CustomWindowMacOS(this.controller, {required this.onClose}) {
+  CustomWindowMacOS(this.controller, {
+    required this.onClose,
+    required CustomWindowInitOptions options,
+  }) {
     cw_nswindow_remove_titlebar(controller.windowHandle);
+
+    if (options.transparentBackdrop) {
+      cw_nswindow_set_background_clear(controller.windowHandle);
+    }
+    if (options.alwaysOnTop) {
+      cw_nswindow_set_level(controller.windowHandle, NSFloatingWindowLevel);
+    }
+    if (options.hideFromSwitcher) {
+      // NSWindowCollectionBehaviorTransient hides from Exposé/Spaces
+      // NSWindowCollectionBehaviorIgnoresCycle hides from Cmd+Tab
+      cw_nswindow_set_collection_behavior(
+        controller.windowHandle,
+        NSWindowCollectionBehaviorTransient |
+            NSWindowCollectionBehaviorIgnoresCycle,
+      );
+    }
+
     controller.addDelegate(this);
   }
 

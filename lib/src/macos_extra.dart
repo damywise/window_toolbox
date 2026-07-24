@@ -206,6 +206,45 @@ int _parseCollectionBehaviorSet(Set<NSWindowCollectionBehavior> behaviors) {
 const _nsWindowStyleMaskClosable = 1 << 1;
 const _nsWindowStyleMaskMiniaturizable = 1 << 2;
 
+/// NSWindow level for floating windows (always-on-top). Value: 5.
+const int NSFloatingWindowLevel = 5;
+
+/// NSWindowCollectionBehavior flag: window is transient (excluded from
+/// Exposé/Spaces). Value: 1 << 3.
+const int NSWindowCollectionBehaviorTransient = 1 << 3;
+
+/// NSWindowCollectionBehavior flag: window is excluded from Cmd+Tab cycle.
+/// Value: 1 << 6.
+const int NSWindowCollectionBehaviorIgnoresCycle = 1 << 6;
+
+/// macOS window decoration methods — alpha, level, corner radius, mouse events.
+extension WindowControllerMacOSDecoration on WindowControllerMacOS {
+  /// Sets the window's alpha (opacity). 0 = fully transparent, 1 = fully opaque.
+  void setAlpha(double alpha) {
+    cw_nswindow_set_alpha(windowHandle, alpha);
+  }
+
+  /// Sets the window's level (z-order). Use [NSFloatingWindowLevel] for always-on-top.
+  void setLevel(int level) {
+    cw_nswindow_set_level(windowHandle, level);
+  }
+
+  /// Sets whether the window ignores mouse events (passthrough).
+  void setIgnoresMouseEvents(bool ignores) {
+    cw_nswindow_set_ignores_mouse_events(windowHandle, ignores);
+  }
+
+  /// Sets the corner radius of the window's content view for rounded corners.
+  void setCornerRadius(double radius) {
+    cw_nswindow_set_corner_radius(windowHandle, radius);
+  }
+
+  /// Makes the window background transparent and non-opaque.
+  void setBackgroundClear() {
+    cw_nswindow_set_background_clear(windowHandle);
+  }
+}
+
 class _WindowControllerMacOSPrivate {
   _WindowControllerMacOSPrivate._(this.controller) {
     final initRequest = ffi.Struct.create<cw_delegate_config_t>();

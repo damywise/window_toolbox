@@ -194,6 +194,7 @@ abstract class CustomWindow {
       return CustomWindowMacOS(
         controller as WindowControllerMacOS,
         onClose: onClose,
+        options: options,
       );
     } else if (controller is WindowControllerWin32) {
       return CustomWindowWin32(

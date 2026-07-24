@@ -428,6 +428,34 @@ cw_rect_t cw_nswindow_get_frame(void *ns_window) {
                      frame.size.height};
 }
 
+EXPORT void cw_nswindow_set_alpha(void *ns_window, double alpha) {
+    NSWindow *window = (__bridge NSWindow *)ns_window;
+    [window setAlphaValue:alpha];
+}
+
+EXPORT void cw_nswindow_set_level(void *ns_window, int level) {
+    NSWindow *window = (__bridge NSWindow *)ns_window;
+    [window setLevel:level];
+}
+
+EXPORT void cw_nswindow_set_ignores_mouse_events(void *ns_window, bool ignores) {
+    NSWindow *window = (__bridge NSWindow *)ns_window;
+    [window setIgnoresMouseEvents:ignores];
+}
+
+EXPORT void cw_nswindow_set_corner_radius(void *ns_window, double radius) {
+    NSWindow *window = (__bridge NSWindow *)ns_window;
+    window.contentView.wantsLayer = YES;
+    window.contentView.layer.cornerRadius = radius;
+    window.contentView.layer.masksToBounds = YES;
+}
+
+EXPORT void cw_nswindow_set_background_clear(void *ns_window) {
+    NSWindow *window = (__bridge NSWindow *)ns_window;
+    [window setBackgroundColor:[NSColor clearColor]];
+    [window setOpaque:NO];
+}
+
 @implementation CWDefaultWindowDelegate
 
 - (BOOL)windowShouldClose:(NSWindow *)sender {
