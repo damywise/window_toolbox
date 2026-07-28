@@ -287,16 +287,22 @@ void cw_nswindow_remove_titlebar(void *ns_window) {
 
 void cw_nswindow_init_delegate(void *ns_window, cw_delegate_config_t config) {
   initSwizzleIfNeeded();
-  CWDelegateState *state = [[CWDelegateState alloc] initWithConfig:config];
   NSWindow *window = (__bridge NSWindow *)ns_window;
-  [state setForObject:window.delegate];
+  if (!window) {
+    return;
+  }
+  id<NSWindowDelegate> delegate = window.delegate;
+  if (!delegate) {
+    return;
+  }
+  CWDelegateState *state = [[CWDelegateState alloc] initWithConfig:config];
+  [state setForObject:delegate];
 
   // Seems like NSWindow will query delegate for supported methods when setting
   // the delegate. It is possible that we have swizzled the delegate methods
   // after it was already set to window, so we temporarily set it to nil and
   // then back to original delegate. Otherwise some newly added methods such as
   // windowDidEnterFullScreen might not be called.
-  id<NSWindowDelegate> delegate = window.delegate;
   window.delegate = nil;
   window.delegate = delegate;
 }
@@ -419,6 +425,56 @@ void cw_nswindow_set_frame(void *ns_window, cw_rect_t frame) {
   [window setFrame:newFrame display:YES];
 }
 
+EXPORT void cw_nswindow_set_frame_bottom_left(void *ns_window, cw_rect_t frame) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  NSRect newFrame = NSMakeRect(frame.x, frame.y, frame.w, frame.h);
+  [window setFrame:newFrame display:YES];
+}
+
+EXPORT cw_rect_t cw_nswindow_get_frame_bottom_left(void *ns_window) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  NSRect frame = window.frame;
+  return (cw_rect_t){frame.origin.x, frame.origin.y, frame.size.width,
+                     frame.size.height};
+}
+
+EXPORT void cw_nswindow_set_fullscreen_on_screen_index(void *ns_window,
+                                                       int32_t screen_index) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  NSArray<NSScreen *> *screens = [NSScreen screens];
+  if (screen_index < 0 || screen_index >= (int32_t)screens.count) {
+    return;
+  }
+  NSScreen *screen = screens[screen_index];
+  NSRect screenFrame = screen.frame;
+  CGFloat width = screenFrame.size.width;
+  if (width > 1.0) {
+    width -= 1.0;
+  }
+  NSRect target = NSMakeRect(screenFrame.origin.x, screenFrame.origin.y, width,
+                             screenFrame.size.height);
+  [window setFrame:target display:YES];
+}
+
+EXPORT void cw_nswindow_position_on_screen_index(void *ns_window,
+                                                 int32_t screen_index) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  NSArray<NSScreen *> *screens = [NSScreen screens];
+  if (screen_index < 0 || screen_index >= (int32_t)screens.count) {
+    return;
+  }
+  NSScreen *screen = screens[screen_index];
+  // visibleFrame excludes menu bar / dock on that screen (drawing overlay fit).
+  NSRect screenFrame = screen.visibleFrame;
+  CGFloat width = screenFrame.size.width;
+  if (width > 1.0) {
+    width -= 1.0;
+  }
+  NSRect target = NSMakeRect(screenFrame.origin.x, screenFrame.origin.y, width,
+                             screenFrame.size.height);
+  [window setFrame:target display:YES];
+}
+
 cw_rect_t cw_nswindow_get_frame(void *ns_window) {
   NSWindow *window = (__bridge NSWindow *)ns_window;
   NSRect frame = window.frame;
@@ -450,10 +506,47 @@ EXPORT void cw_nswindow_set_corner_radius(void *ns_window, double radius) {
     window.contentView.layer.masksToBounds = YES;
 }
 
+static void cw_clear_view_hierarchy_transparent(NSView *view) {
+  if (!view) {
+    return;
+  }
+  view.wantsLayer = YES;
+  view.layer.backgroundColor = [NSColor clearColor].CGColor;
+  view.layer.opaque = NO;
+  for (NSView *subview in view.subviews) {
+    cw_clear_view_hierarchy_transparent(subview);
+  }
+}
+
 EXPORT void cw_nswindow_set_background_clear(void *ns_window) {
     NSWindow *window = (__bridge NSWindow *)ns_window;
+    if (!window) {
+        return;
+    }
+    window.opaque = NO;
     [window setBackgroundColor:[NSColor clearColor]];
-    [window setOpaque:NO];
+
+    NSView *contentView = window.contentView;
+    if (contentView) {
+        contentView.wantsLayer = YES;
+        contentView.layer.backgroundColor = [NSColor clearColor].CGColor;
+        contentView.layer.opaque = NO;
+    }
+
+    NSViewController *controller = window.contentViewController;
+    if (controller) {
+        SEL selector = NSSelectorFromString(@"setBackgroundColor:");
+        if ([controller respondsToSelector:selector]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [controller performSelector:selector withObject:[NSColor clearColor]];
+#pragma clang diagnostic pop
+        }
+        controller.view.wantsLayer = YES;
+        controller.view.layer.backgroundColor = [NSColor clearColor].CGColor;
+        controller.view.layer.opaque = NO;
+        cw_clear_view_hierarchy_transparent(controller.view);
+    }
 }
 
 @implementation CWDefaultWindowDelegate

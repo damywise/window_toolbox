@@ -3,8 +3,26 @@ export 'src/macos_extra.dart';
 export 'src/win32_extra.dart';
 export 'src/linux_extra.dart';
 export 'src/win32_mouse_passthrough.dart' show setIgnoresMouseEventsForHwnd;
-export 'src/win32_frameless_setup.dart' show hwndAddressFor;
+export 'src/win32_frameless_setup.dart'
+    show
+        hwndAddressFor,
+        hwndForController,
+        cancelWin32FramelessSetupForHwnd,
+        enableTransparentBackdropForHwnd;
+export 'src/win32_window_chrome.dart'
+    show
+        setAlwaysOnTopForHwnd,
+        setHideFromSwitcherForHwnd,
+        setWindowAlphaForHwnd,
+        bringToFrontForHwnd,
+        applyTopmostExStylesForHwnd,
+        preserveNoActivateForHwnd,
+        clearNoActivateForHwnd,
+        applyNoActivatePolicyForHwnd;
 export 'src/win32_satellite_gap.dart';
+export 'src/window_controller_ops.dart';
+export 'src/window_hooks.dart';
+export 'src/win32_window_ops.dart' show Win32WindowOps;
 
 import 'dart:ui' show Rect;
 

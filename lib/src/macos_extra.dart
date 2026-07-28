@@ -116,10 +116,12 @@ extension WindowControllerMacOSExtension on WindowControllerMacOS {
   /// Updates the window size. This is useful when delegate implements [windowWillResizeToSize]
   /// and needs to enforce new size.
   void updateSize() {
+    final existing = _WindowControllerMacOSPrivate._expando[this];
+    if (existing == null) {
+      return;
+    }
+    final delegates = existing.delegates;
     final frame = getWindowFrame();
-    final delegates = _WindowControllerMacOSPrivate.forController(
-      this,
-    )._delegates;
     for (final delegate in delegates) {
       final newSize = delegate.windowWillResizeToSize(frame.size);
       if (newSize != null) {
@@ -416,8 +418,7 @@ class _WindowControllerMacOSPrivate {
     _delegates.remove(delegate);
   }
 
-  List<WindowDelegateMacOS> get delegates =>
-      List.unmodifiable(_delegates);
+  List<WindowDelegateMacOS> get delegates => List.unmodifiable(_delegates);
 
   final List<WindowDelegateMacOS> _delegates = [];
 

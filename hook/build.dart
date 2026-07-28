@@ -34,6 +34,8 @@ void main(List<String> args) async {
         assetName: 'macos',
         sources: [
           'src/macos.m',
+          'src/macos_panel.m',
+          'src/macos_hooks.m',
           'src/window_buttons_proxy.m',
         ],
         language: Language.objectiveC,

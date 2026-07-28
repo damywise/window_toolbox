@@ -75,6 +75,54 @@ external void cw_nswindow_init_delegate(
   cw_delegate_config_t config,
 );
 
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, cw_rect_t)>()
+external void cw_nswindow_set_frame(
+  ffi.Pointer<ffi.Void> ns_window,
+  cw_rect_t frame,
+);
+
+@ffi.Native<cw_rect_t Function(ffi.Pointer<ffi.Void>)>()
+external cw_rect_t cw_nswindow_get_frame(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+/// AppKit bottom-left frame (no Flutter Y-flip). Matches legacy window_lifecycle.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, cw_rect_t)>()
+external void cw_nswindow_set_frame_bottom_left(
+  ffi.Pointer<ffi.Void> ns_window,
+  cw_rect_t frame,
+);
+
+@ffi.Native<cw_rect_t Function(ffi.Pointer<ffi.Void>)>()
+external cw_rect_t cw_nswindow_get_frame_bottom_left(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+/// Near-fullscreen window on [NSScreen screens][screen_index].frame (width-1).
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
+external void cw_nswindow_set_fullscreen_on_screen_index(
+  ffi.Pointer<ffi.Void> ns_window,
+  int screen_index,
+);
+
+/// [cw_nswindow_set_panel_flags] — stationary Space behavior (e.g. fullscreen overlays).
+const int cwPanelFlagStationary = 1;
+
+/// [cw_nswindow_set_panel_flags] — disable user dragging.
+const int cwPanelFlagImmovable = 2;
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Uint32)>()
+external void cw_nswindow_set_panel_flags(
+  ffi.Pointer<ffi.Void> ns_window,
+  int flags,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
+external void cw_nswindow_position_on_screen_index(
+  ffi.Pointer<ffi.Void> ns_window,
+  int screen_index,
+);
+
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
 external void cw_nswindow_set_alpha(
   ffi.Pointer<ffi.Void> ns_window,
@@ -104,16 +152,118 @@ external void cw_nswindow_set_background_clear(
   ffi.Pointer<ffi.Void> ns_window,
 );
 
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, cw_rect_t)>()
-external void cw_nswindow_set_frame(
+@ffi.Native<ffi.Int32 Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external int cw_nswindow_promote_to_panel(
   ffi.Pointer<ffi.Void> ns_window,
-  cw_rect_t frame,
+  bool floating,
 );
 
-@ffi.Native<cw_rect_t Function(ffi.Pointer<ffi.Void>)>()
-external cw_rect_t cw_nswindow_get_frame(
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external void cw_nswindow_set_shadow(
+  ffi.Pointer<ffi.Void> ns_window,
+  bool has_shadow,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_force_redraw(
   ffi.Pointer<ffi.Void> ns_window,
 );
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
+external void cw_nswindow_set_app_window_level(
+  ffi.Pointer<ffi.Void> ns_window,
+  int level_offset,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_make_frameless(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_make_titleless(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_start_drag(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_make_key(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function()>()
+external void cw_nswindow_activate_app();
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_center(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double, ffi.Double)>()
+external void cw_nswindow_set_min_size(
+  ffi.Pointer<ffi.Void> ns_window,
+  double width,
+  double height,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_order_front(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external void cw_nswindow_set_capture_exclusion(
+  ffi.Pointer<ffi.Void> ns_window,
+  bool exclude,
+);
+
+@ffi.Native<ffi.Void Function()>()
+external void cw_hooks_init();
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Int32 event_type,
+          ffi.Pointer<ffi.Void> window_handle,
+          ffi.Pointer<ffi.Char> title,
+          ffi.Double x,
+          ffi.Double y,
+          ffi.Double width,
+          ffi.Double height,
+          ffi.Pointer<ffi.Void> context,
+        )
+      >
+    >,
+    ffi.Pointer<ffi.Void>,
+  )
+>()
+external void cw_hooks_set_window_event_callback(
+  ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(
+        ffi.Int32 event_type,
+        ffi.Pointer<ffi.Void> window_handle,
+        ffi.Pointer<ffi.Char> title,
+        ffi.Double x,
+        ffi.Double y,
+        ffi.Double width,
+        ffi.Double height,
+        ffi.Pointer<ffi.Void> context,
+      )
+    >
+  >
+  callback,
+  ffi.Pointer<ffi.Void> context,
+);
+
+@ffi.Native<ffi.Void Function()>()
+external void cw_hooks_dispose();
 
 final class cw_rect_t extends ffi.Struct {
   @ffi.Double()
