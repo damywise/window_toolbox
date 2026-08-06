@@ -14,6 +14,12 @@
 - (BOOL)canBecomeMain {
   return YES;
 }
+// Borderless/nonactivating windows refuse to become the key window by
+// default (canBecomeKeyWindow returns NO), so AppKit never routes keystrokes
+// to them. Override it so the palette panel can accept keyboard input.
+- (BOOL)canBecomeKeyWindow {
+  return YES;
+}
 @end
 
 static const void *kCWPanelFlagsKey = &kCWPanelFlagsKey;
