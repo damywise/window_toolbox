@@ -234,7 +234,11 @@ class _MinimizeButtonState extends State<MinimizeButton> {
     bool enabled = widget.enabled;
     final controller = WindowScope.of(context);
     if (controller is WindowControllerWin32) {
-      enabled &= (controller as WindowControllerWin32).canMinimize;
+      try {
+        enabled &= (controller as WindowControllerWin32).canMinimize;
+      } catch (_) {
+        enabled = false; // Window already destroyed during close.
+      }
     }
     return WindowDragExcludeArea(
       child: Button(
@@ -285,7 +289,11 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
     bool enabled = widget.enabled;
     final controller = WindowScope.of(context);
     if (controller is WindowControllerWin32) {
-      enabled &= (controller as WindowControllerWin32).canMaximize;
+      try {
+        enabled &= (controller as WindowControllerWin32).canMaximize;
+      } catch (_) {
+        enabled = false; // Window already destroyed during close.
+      }
     }
     return WindowDragExcludeArea(
       child: Button(
@@ -309,7 +317,11 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
   void _onPressed() {
     final controller = WindowScope.of(context);
     if (controller is WindowController) {
-      controller.setMaximized(!controller.isMaximized);
+      try {
+        controller.setMaximized(!controller.isMaximized);
+      } catch (_) {
+        // Window may already be destroyed during close.
+      }
     }
   }
 
@@ -318,8 +330,15 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
   final _buttonNode = FocusNode();
   bool get _isMaximized {
     final c = _controller;
-    if (c is WindowController) return c.isMaximized;
-    return false;
+    if (c is! WindowController) {
+      return false;
+    }
+    try {
+      return c.isMaximized;
+    } catch (_) {
+      // Window may already be destroyed during close.
+      return _lastMaximized;
+    }
   }
 
   @override
@@ -334,9 +353,14 @@ class _MaximizeButtonState extends _FrameReportingState<MaximizeButton> {
     if (!mounted) {
       return;
     }
-    if (_isMaximized != _lastMaximized) {
-      _lastMaximized = _isMaximized;
-      setState(() {});
+    try {
+      final next = _isMaximized;
+      if (next != _lastMaximized) {
+        _lastMaximized = next;
+        setState(() {});
+      }
+    } catch (_) {
+      // Ignore notifications after the native window is destroyed.
     }
   }
 
@@ -438,7 +462,11 @@ class _WindowDragAreaState extends _FrameReportingState<WindowDragArea> {
               _DoubleTapToMaximizeGestureRecognizer instance,
             ) {
               instance.onDoubleTap = () {
-                controller.setMaximized(!controller.isMaximized);
+                try {
+                  controller.setMaximized(!controller.isMaximized);
+                } catch (_) {
+                  // Window may already be destroyed during close.
+                }
               };
             });
       }
