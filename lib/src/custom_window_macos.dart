@@ -60,6 +60,9 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
     Brightness? brightness,
     WindowTrafficLightInactiveConfigration? inactiveConfigration,
   ) {
+    // Frame reporters flush one last config from State.dispose, which can run
+    // after the NSWindow is gone (e.g. panel redock); windowHandle throws then.
+    if (controller.isDestroyed) return;
     final config = ffi.calloc<cw_traffic_light_config_t>();
     try {
       config.ref.offset_x = offset.dx;

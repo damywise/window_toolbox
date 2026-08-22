@@ -36,6 +36,7 @@ void main(List<String> args) async {
           'src/macos.m',
           'src/macos_panel.m',
           'src/macos_hooks.m',
+          'src/macos_drag_overlay.m',
           'src/window_buttons_proxy.m',
         ],
         language: Language.objectiveC,

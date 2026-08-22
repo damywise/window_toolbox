@@ -125,6 +125,20 @@ typedef void (*cw_window_event_callback_t)(
     int32_t event_type, void *window_handle, const char *title, double x,
     double y, double width, double height, void *context);
 
+// Drag overlay (macOS tab drag image): borderless, click-through NSWindow
+// that shows the captured pill following the cursor.
+EXPORT void *cw_drag_overlay_create(void);
+EXPORT void cw_drag_overlay_set_image(void *handle, const uint8_t *rgba, int32_t width, int32_t height);
+EXPORT void cw_drag_overlay_set_frame(void *handle, double x, double y, double w, double h);
+EXPORT void cw_drag_overlay_set_frame_bottom_left(void *handle, double x, double y, double w, double h);
+EXPORT void cw_drag_overlay_destroy(void *handle);
+EXPORT void cw_drag_overlay_mouse_location(double *out_x, double *out_y);
+EXPORT void cw_drag_overlay_visible_frame(double *out_x, double *out_y, double *out_w, double *out_h);
+EXPORT double cw_drag_overlay_screen_height(void);
+EXPORT double cw_drag_overlay_backing_scale(void);
+EXPORT int32_t cw_drag_overlay_left_mouse_down(void);
+EXPORT int32_t cw_drag_overlay_right_mouse_down(void);
+
 EXPORT void cw_hooks_init(void);
 EXPORT void cw_hooks_set_window_event_callback(
     cw_window_event_callback_t callback, void *context);

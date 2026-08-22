@@ -105,12 +105,6 @@ external void cw_nswindow_set_fullscreen_on_screen_index(
   int screen_index,
 );
 
-/// [cw_nswindow_set_panel_flags] — stationary Space behavior (e.g. fullscreen overlays).
-const int cwPanelFlagStationary = 1;
-
-/// [cw_nswindow_set_panel_flags] — disable user dragging.
-const int cwPanelFlagImmovable = 2;
-
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Uint32)>()
 external void cw_nswindow_set_panel_flags(
   ffi.Pointer<ffi.Void> ns_window,
@@ -221,6 +215,98 @@ external void cw_nswindow_set_capture_exclusion(
   bool exclude,
 );
 
+@ffi.Native<ffi.Pointer<ffi.Void> Function()>()
+external ffi.Pointer<ffi.Void> cw_drag_overlay_create();
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Uint8>,
+    ffi.Int32,
+    ffi.Int32,
+  )
+>()
+external void cw_drag_overlay_set_image(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<ffi.Uint8> rgba,
+  int width,
+  int height,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+  )
+>()
+external void cw_drag_overlay_set_frame(
+  ffi.Pointer<ffi.Void> handle,
+  double x,
+  double y,
+  double w,
+  double h,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+  )
+>()
+external void cw_drag_overlay_set_frame_bottom_left(
+  ffi.Pointer<ffi.Void> handle,
+  double x,
+  double y,
+  double w,
+  double h,
+);
+
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_drag_overlay_destroy(
+  ffi.Pointer<ffi.Void> handle,
+);
+
+@ffi.Native<
+  ffi.Void Function(ffi.Pointer<ffi.Double>, ffi.Pointer<ffi.Double>)
+>()
+external void cw_drag_overlay_mouse_location(
+  ffi.Pointer<ffi.Double> out_x,
+  ffi.Pointer<ffi.Double> out_y,
+);
+
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Pointer<ffi.Double>,
+  )
+>()
+external void cw_drag_overlay_visible_frame(
+  ffi.Pointer<ffi.Double> out_x,
+  ffi.Pointer<ffi.Double> out_y,
+  ffi.Pointer<ffi.Double> out_w,
+  ffi.Pointer<ffi.Double> out_h,
+);
+
+@ffi.Native<ffi.Double Function()>()
+external double cw_drag_overlay_screen_height();
+
+@ffi.Native<ffi.Double Function()>()
+external double cw_drag_overlay_backing_scale();
+
+@ffi.Native<ffi.Int32 Function()>()
+external int cw_drag_overlay_left_mouse_down();
+
+@ffi.Native<ffi.Int32 Function()>()
+external int cw_drag_overlay_right_mouse_down();
+
 @ffi.Native<ffi.Void Function()>()
 external void cw_hooks_init();
 
@@ -264,6 +350,12 @@ external void cw_hooks_set_window_event_callback(
 
 @ffi.Native<ffi.Void Function()>()
 external void cw_hooks_dispose();
+
+/// Emit WINDOW_EVENT_MOVED for hooks consumers (e.g. drag tracker during performDrag).
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_hooks_emit_window_moved(
+  ffi.Pointer<ffi.Void> ns_window,
+);
 
 final class cw_rect_t extends ffi.Struct {
   @ffi.Double()
