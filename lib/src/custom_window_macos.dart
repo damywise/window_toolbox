@@ -28,6 +28,13 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
       // mask and renders with a native frame and close/minimize/zoom
       // buttons.
       cw_nswindow_make_frameless(controller.windowHandle);
+      // No native window shadow either: AppKit traces the borderless
+      // window's FULL frame (not just the opaque content), so a 380x420
+      // transparent overlay reads as a rectangular "border" around the
+      // whole window surface. The Flutter content (toast cards) carries its
+      // own drop shadows — the same reasoning as the drag overlay
+      // (src/macos_drag_overlay.m), where a window shadow would double it.
+      cw_nswindow_set_shadow(controller.windowHandle, false);
     }
     if (options.transparentBackdrop) {
       cw_nswindow_set_background_clear(controller.windowHandle);
