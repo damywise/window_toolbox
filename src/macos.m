@@ -848,12 +848,15 @@ EXPORT void cw_nswindow_set_glass_backdrop(void *ns_window, int32_t style) {
   }
 }
 
+static void *kCWGlassPanelKey = &kCWGlassPanelKey;
+
 /// macOS 26+: insets a Liquid Glass PANEL behind the Flutter content at
 /// window-local LOGICAL px (top-left origin, matching Flutter's coords),
 /// rounded with [corner_radius]. [style]: 0 Regular / 1 Clear. First call
 /// wraps the content in a flipped container so the glass can sit UNDER the
-/// Flutter surface (z-order guaranteed by explicit relativeTo:). No-op below
-/// macOS 26.
+/// Flutter surface (z-order guaranteed by explicit relativeTo:). REPEATED
+/// calls REPLACE the existing panel (one glass surface per window — never
+/// stack glass-on-glass; the skills' anti-pattern). No-op below macOS 26.
 EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
                                         double w, double h,
                                         double corner_radius, int32_t style) {
@@ -866,6 +869,14 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
     return;
   }
   if (@available(macOS 26.0, *)) {
+    // Drop the previous panel so repeated calls update in place.
+    CWGlassEffectView *previous =
+        objc_getAssociatedObject(window, kCWGlassPanelKey);
+    if (previous && previous.superview) {
+      [previous removeFromSuperview];
+      objc_setAssociatedObject(window, kCWGlassPanelKey, nil,
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
     NSView *container = contentView;
     if (![container isKindOfClass:[CWGlassContainer class]]) {
       if (CGRectIsEmpty(contentView.bounds)) {
@@ -887,6 +898,8 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
     [container addSubview:glass
                 positioned:NSWindowBelow
                 relativeTo:contentView];
+    objc_setAssociatedObject(window, kCWGlassPanelKey, glass,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     fprintf(stderr,
             "[cw-glass] panel: %.0fx%.0f at (%.0f,%.0f) style %s\n",
             w, h, x, y, style == 1 ? "clear" : "regular");
