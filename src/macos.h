@@ -119,6 +119,10 @@ EXPORT void cw_nswindow_center(void *ns_window);
 EXPORT void cw_nswindow_set_min_size(void *ns_window, double width,
                                      double height);
 EXPORT void cw_nswindow_order_front(void *ns_window);
+/// Visible frame (excludes menu bar / dock) of [NSScreen screens][index]
+/// in the flipped top-left global-union space (same as cw_nswindow_get_frame).
+EXPORT cw_rect_t cw_nsscreen_visible_frame(int32_t screen_index);
+EXPORT void cw_nswindow_order_out(void *ns_window);
 EXPORT void cw_nswindow_set_capture_exclusion(void *ns_window, bool exclude);
 
 typedef void (*cw_window_event_callback_t)(

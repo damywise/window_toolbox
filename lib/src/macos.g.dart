@@ -209,6 +209,20 @@ external void cw_nswindow_order_front(
   ffi.Pointer<ffi.Void> ns_window,
 );
 
+/// Visible frame (excludes menu bar / dock) of `NSScreen screens[index]`
+/// in the flipped top-left global-union space (same as cw_nswindow_get_frame).
+@ffi.Native<cw_rect_t Function(ffi.Int32)>()
+external cw_rect_t cw_nsscreen_visible_frame(
+  int screen_index,
+);
+
+/// Hides the window without destroying it ([NSWindow orderOut:] — the
+/// window stays alive and re-usable via cw_nswindow_order_front).
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_order_out(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
 external void cw_nswindow_set_capture_exclusion(
   ffi.Pointer<ffi.Void> ns_window,

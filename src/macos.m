@@ -484,6 +484,22 @@ cw_rect_t cw_nswindow_get_frame(void *ns_window) {
                      frame.size.height};
 }
 
+/// Visible frame (excludes menu bar / dock) of [NSScreen screens][index].
+/// Returned in the same FLIPPED top-left global-union space as
+/// [cw_nswindow_get_frame] / [cw_nswindow_set_frame], so callers can hand it
+/// straight to [cw_nswindow_set_frame] without further Y conversions.
+EXPORT cw_rect_t cw_nsscreen_visible_frame(int32_t screen_index) {
+  NSArray<NSScreen *> *screens = [NSScreen screens];
+  if (screen_index < 0 || screen_index >= (int32_t)screens.count) {
+    return (cw_rect_t){0, 0, 0, 0};
+  }
+  NSRect frame = [screens[screen_index] visibleFrame];
+  NSRect globalScreenFrame = computeGlobalScreenFrame();
+  flipRect(&frame, &globalScreenFrame);
+  return (cw_rect_t){frame.origin.x, frame.origin.y, frame.size.width,
+                     frame.size.height};
+}
+
 EXPORT void cw_nswindow_set_alpha(void *ns_window, double alpha) {
     NSWindow *window = (__bridge NSWindow *)ns_window;
     [window setAlphaValue:alpha];

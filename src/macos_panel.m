@@ -405,6 +405,18 @@ EXPORT void cw_nswindow_order_front(void *ns_window) {
   });
 }
 
+/// Hides the window without destroying it ([NSWindow orderOut:] — the
+/// window stays alive and re-usable via [cw_nswindow_order_front]).
+EXPORT void cw_nswindow_order_out(void *ns_window) {
+  NSWindow *window = cw_find_window(ns_window);
+  if (!window) {
+    return;
+  }
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [window orderOut:nil];
+  });
+}
+
 EXPORT void cw_nswindow_set_capture_exclusion(void *ns_window, bool exclude) {
   NSWindow *window = cw_find_window(ns_window);
   if (!window) {

@@ -1,5 +1,6 @@
 import 'dart:ffi' as ffi;
 import 'dart:io';
+import 'dart:ui' show Rect;
 
 import 'package:flutter/src/widgets/_window.dart';
 import 'package:flutter/src/widgets/_window_macos.dart';
@@ -166,6 +167,28 @@ extension WindowControllerOps on BaseWindowController {
     }
   }
 
+  /// Hides the window without activating or destroying it ([NSWindow
+  /// orderOut:] — the window stays alive and re-usable via [orderFront]).
+  /// Win32: no-op (the Win32 hide/show path is window_toolbox's ShowWindow
+  /// helpers in the app).
+  void orderOut() {
+    if (this is WindowControllerMacOS) {
+      cw_nswindow_order_out((this as WindowControllerMacOS).windowHandle);
+    }
+  }
+
+  /// macOS: the visible frame (excludes the menu bar / dock) of the screen
+  /// at [screenIndex] of `NSScreen screens`, in the flipped top-left
+  /// global-union space [WindowControllerMacOSExtension.setWindowFrame]
+  /// expects — hand it straight to that setter. Returns [Rect.zero] on
+  /// non-macOS platforms.
+  Rect visibleScreenFrame(int screenIndex) {
+    if (this is WindowControllerMacOS) {
+      return cw_nsscreen_visible_frame(screenIndex);
+    }
+    return Rect.zero;
+  }
+
   bool setCaptureExclusion(bool exclude) {
     if (this is WindowControllerMacOS) {
       cw_nswindow_set_capture_exclusion(
@@ -276,6 +299,14 @@ void cw_nswindow_set_min_size(
 
 void cw_nswindow_order_front(ffi.Pointer<ffi.Void> handle) =>
     macos.cw_nswindow_order_front(handle);
+
+void cw_nswindow_order_out(ffi.Pointer<ffi.Void> handle) =>
+    macos.cw_nswindow_order_out(handle);
+
+Rect cw_nsscreen_visible_frame(int screenIndex) {
+  final r = macos.cw_nsscreen_visible_frame(screenIndex);
+  return Rect.fromLTWH(r.x, r.y, r.w, r.h);
+}
 
 void cw_nswindow_set_capture_exclusion(
   ffi.Pointer<ffi.Void> handle,
