@@ -767,3 +767,129 @@ EXPORT void cw_nswindow_set_background_clear(void *ns_window) {
 }
 
 @end
+
+// ============================================================================
+// Liquid Glass (macOS 26+) — whole-window backdrop + inset panel.
+// Public NSGlassEffectView API: style (Regular/Clear), cornerRadius, contentView.
+// Only used on macOS 26+; below that these are no-ops (AppKit availability).
+// ============================================================================
+
+/// Click-through-safe NSGlassEffectView. Panel mode (no contentView set):
+/// hitTest -> nil, so glass placed BELOW the Flutter surface never swallows
+/// clicks. Backdrop mode (contentView = the window's content): recurse into
+/// it so embedded content keeps receiving input.
+@interface CWGlassEffectView : NSGlassEffectView
+
+@end
+
+@implementation CWGlassEffectView
+
+- (NSView *)hitTest:(NSPoint)point {
+  NSView *content = self.contentView;
+  if (content && content != self) {
+    if (CGRectContainsPoint(content.frame, point)) {
+      return [content hitTest:[self convertPoint:point toView:content]];
+    }
+    return nil;
+  }
+  return nil;
+}
+
+@end
+
+/// Flipped container used by the panel path so a native glass view can sit
+/// UNDER the Flutter content surface (same wrap pattern the drag overlay
+/// uses via cw_nswindow_update_draggable_areas).
+@interface CWGlassContainer : NSView
+
+@end
+
+@implementation CWGlassContainer
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+@end
+
+/// macOS 26+: 1 when the public NSGlassEffectView class exists at runtime,
+/// 0 otherwise.
+EXPORT int32_t cw_nswindow_has_liquid_glass(void) {
+  return NSClassFromString(@"NSGlassEffectView") != nil ? 1 : 0;
+}
+
+/// macOS 26+: makes the WHOLE window a Liquid Glass surface — the glass view
+/// becomes the window's contentView with the existing content (the Flutter
+/// view) EMBEDDED as its contentView (the documented model: "a view that
+/// embeds its content view in a dynamic glass effect"). [style]: 0 = Regular
+/// glass, 1 = Clear glass. No-op below macOS 26.
+EXPORT void cw_nswindow_set_glass_backdrop(void *ns_window, int32_t style) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *current = window.contentView;
+  if (!current) {
+    return;
+  }
+  if (@available(macOS 26.0, *)) {
+    CWGlassEffectView *glass =
+        [[CWGlassEffectView alloc] initWithFrame:current.bounds];
+    glass.style = style == 1 ? NSGlassEffectViewStyleClear
+                             : NSGlassEffectViewStyleRegular;
+    glass.contentView = current;
+    current.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = glass;
+    fprintf(stderr,
+            "[cw-glass] backdrop: window %s contentView=%s (style %s)\n",
+            class_getName([window class]),
+            NSStringFromClass([current class]).UTF8String,
+            style == 1 ? "clear" : "regular");
+  }
+}
+
+/// macOS 26+: insets a Liquid Glass PANEL behind the Flutter content at
+/// window-local LOGICAL px (top-left origin, matching Flutter's coords),
+/// rounded with [corner_radius]. [style]: 0 Regular / 1 Clear. First call
+/// wraps the content in a flipped container so the glass can sit UNDER the
+/// Flutter surface (z-order guaranteed by explicit relativeTo:). No-op below
+/// macOS 26.
+EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
+                                        double w, double h,
+                                        double corner_radius, int32_t style) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *contentView = window.contentView;
+  if (!contentView) {
+    return;
+  }
+  if (@available(macOS 26.0, *)) {
+    NSView *container = contentView;
+    if (![container isKindOfClass:[CWGlassContainer class]]) {
+      if (CGRectIsEmpty(contentView.bounds)) {
+        fprintf(stderr, "[cw-glass] panel: skipping wrap, empty bounds\n");
+        return;
+      }
+      container = [[CWGlassContainer alloc] initWithFrame:contentView.bounds];
+      NSView *old = contentView;
+      [container addSubview:old];
+      old.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+      window.contentView = container;
+      fprintf(stderr, "[cw-glass] panel: wrapped contentView\n");
+    }
+    CWGlassEffectView *glass =
+        [[CWGlassEffectView alloc] initWithFrame:NSMakeRect(x, y, w, h)];
+    glass.style = style == 1 ? NSGlassEffectViewStyleClear
+                             : NSGlassEffectViewStyleRegular;
+    glass.cornerRadius = corner_radius;
+    [container addSubview:glass
+                positioned:NSWindowBelow
+                relativeTo:contentView];
+    fprintf(stderr,
+            "[cw-glass] panel: %.0fx%.0f at (%.0f,%.0f) style %s\n",
+            w, h, x, y, style == 1 ? "clear" : "regular");
+  }
+}
+

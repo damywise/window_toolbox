@@ -155,6 +155,36 @@ extension WindowControllerOps on BaseWindowController {
     }
   }
 
+  /// macOS 26+: makes the WHOLE window a Liquid Glass surface (glass view
+  /// becomes the window's content view with the Flutter content EMBEDDED as
+  /// its contentView — the documented model). [style]: 0 Regular, 1 Clear.
+  /// No-op below 26.
+  void setGlassBackdrop({int style = 0}) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      cw_nswindow_set_glass_backdrop(
+          (this as WindowControllerMacOS).windowHandle, style);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
+  /// macOS 26+: insets a Liquid Glass PANEL behind the Flutter content at
+  /// [rect] (window-local LOGICAL px, top-left origin), rounded with
+  /// [cornerRadius]. [style]: 0 Regular, 1 Clear. No-op below 26.
+  void setGlassPanel(Rect? rect, {double cornerRadius = 16, int style = 0}) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      final handle = (this as WindowControllerMacOS).windowHandle;
+      final r = rect;
+      if (r == null || r.isEmpty) return;
+      cw_nswindow_set_glass_panel(
+          handle, r.left, r.top, r.width, r.height, cornerRadius, style);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
   void orderFront() {
     if (this is WindowControllerMacOS) {
       cw_nswindow_order_front((this as WindowControllerMacOS).windowHandle);
@@ -302,6 +332,18 @@ void cw_nswindow_order_front(ffi.Pointer<ffi.Void> handle) =>
 
 void cw_nswindow_order_out(ffi.Pointer<ffi.Void> handle) =>
     macos.cw_nswindow_order_out(handle);
+
+int cw_nswindow_has_liquid_glass() => macos.cw_nswindow_has_liquid_glass();
+
+void cw_nswindow_set_glass_backdrop(ffi.Pointer<ffi.Void> handle,
+                                    int style) =>
+    macos.cw_nswindow_set_glass_backdrop(handle, style);
+
+void cw_nswindow_set_glass_panel(ffi.Pointer<ffi.Void> handle, double x,
+                                 double y, double w, double h,
+                                 double cornerRadius, int style) =>
+    macos.cw_nswindow_set_glass_panel(
+        handle, x, y, w, h, cornerRadius, style);
 
 Rect cw_nsscreen_visible_frame(int screenIndex) {
   final r = macos.cw_nsscreen_visible_frame(screenIndex);
