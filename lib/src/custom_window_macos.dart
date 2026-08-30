@@ -20,6 +20,15 @@ class CustomWindowMacOS extends CustomWindow with WindowDelegateMacOS {
   }) {
     cw_nswindow_remove_titlebar(controller.windowHandle);
 
+    if (options.transparentBackdrop || options.mousePassthrough) {
+      // Overlay windows are FRAMELESS — borderless style mask (no border,
+      // no traffic lights). Parity with the Win32 contract where the overlay
+      // flags (transparentBackdrop / mousePassthrough) also select frameless
+      // mode. Without this the overlay keeps the default titled/bordered
+      // mask and renders with a native frame and close/minimize/zoom
+      // buttons.
+      cw_nswindow_make_frameless(controller.windowHandle);
+    }
     if (options.transparentBackdrop) {
       cw_nswindow_set_background_clear(controller.windowHandle);
     }
