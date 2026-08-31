@@ -547,3 +547,10 @@ external void cw_nswindow_set_movable_by_background(
   ffi.Pointer<ffi.Void> ns_window,
   bool movable,
 );
+
+/// Re-evaluates per-region click-through right now (cursor position -> rect
+/// check -> setIgnoresMouseEvents toggle). No event delivery dependency.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_eval_click_through(
+  ffi.Pointer<ffi.Void> ns_window,
+);

@@ -242,6 +242,20 @@ extension WindowControllerOps on BaseWindowController {
     }
   }
 
+  /// macOS: re-evaluates the per-region click-through state NOW (cursor
+  /// position vs the registered card rects -> ignoresMouseEvents toggle).
+  /// Call periodically — mouse-moved event delivery is unreliable for the
+  /// app's own windows.
+  void evalClickThrough() {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      macos.cw_nswindow_eval_click_through(
+          (this as WindowControllerMacOS).windowHandle);
+    } on Object {
+      // Window destroyed mid-teardown — nothing to evaluate.
+    }
+  }
+
   /// macOS: per-region click-through — the window stays interactive ONLY
   /// inside [rects] (window-local LOGICAL px, top-left origin, the same space
   /// as [WindowControllerMacOSExtension.getWindowFrame]'s origin minus the

@@ -190,3 +190,7 @@ EXPORT void cw_nswindow_set_content_scale(void *ns_window, double scale);
 /// non-draggable so clicks reach the Flutter content.
 EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
                                                   bool movable);
+
+/// Re-evaluates per-region click-through now (cursor position -> rect check ->
+/// ignoresMouseEvents toggle). Called periodically; no event dependency.
+EXPORT void cw_nswindow_eval_click_through(void *ns_window);

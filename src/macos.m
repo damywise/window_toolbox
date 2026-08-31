@@ -1110,10 +1110,13 @@ static void CWEvalClickThrough(NSWindow *window) {
   }
   BOOL inside = [box containsScreenPoint:[NSEvent mouseLocation]
                                 inWindow:window];
-  if (inside == ![window ignoresMouseEvents]) {
+  BOOL ignoring = [window ignoresMouseEvents];
+  if (inside == !ignoring) {
     return;  // already in the right state
   }
   [window setIgnoresMouseEvents:!inside];
+  fprintf(stderr, "[cw-ct] eval: cursor %s rect(s) -> ignoresMouseEvents %s\n",
+          inside ? "INSIDE" : "OUTSIDE", !inside ? "YES" : "NO");
 }
 
 /// Registers the window-LOCAL LOGICAL (top-left origin) interactive rects for
@@ -1137,6 +1140,16 @@ EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
   }
   [box setRects:rects count:rect_count];
   [window setIgnoresMouseEvents:rect_count == 0 || rects == NULL];
+  if (rect_count > 0 && rects) {
+    fprintf(stderr, "[cw-ct] setRects: %zu rect(s):", rect_count);
+    for (size_t i = 0; i < rect_count && i < 3; i++) {
+      fprintf(stderr, " [%.0f,%.0f %.0fx%.0f]", rects[i * 4],
+              rects[i * 4 + 1], rects[i * 4 + 2], rects[i * 4 + 3]);
+    }
+    fprintf(stderr, "\n");
+  } else {
+    fprintf(stderr, "[cw-ct] setRects: empty\n");
+  }
   if (gClickWindows == nil) {
     gClickWindows = [NSHashTable weakObjectsHashTable];
   }
@@ -1153,4 +1166,16 @@ EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
         }];
   }
   CWEvalClickThrough(window);
+}
+
+/// Re-evaluates the per-region click-through state RIGHT NOW (no event
+/// dependency): reads the current cursor position, checks the registered card
+/// rects, and toggles [NSWindow setIgnoresMouseEvents:] accordingly. Called
+/// periodically by the app — mouse-moved event delivery can't be relied on
+/// for the app's own windows.
+EXPORT void cw_nswindow_eval_click_through(void *ns_window) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (window) {
+    CWEvalClickThrough(window);
+  }
 }
