@@ -153,14 +153,3 @@ EXPORT void cw_hooks_emit_window_moved(void *ns_window);
 #ifdef __cplusplus
 }
 #endif
-/// macOS 26+: 1 when the public NSGlassEffectView exists at runtime.
-EXPORT int32_t cw_nswindow_has_liquid_glass(void);
-/// macOS 26+: whole-window Liquid Glass (glass = contentView, content
-/// embedded). style: 0 Regular / 1 Clear. No-op below 26.
-EXPORT void cw_nswindow_set_glass_backdrop(void *ns_window, int32_t style);
-/// macOS 26+: inset Liquid Glass panel behind the content (window-local
-/// LOGICAL px, top-left origin). style: 0 Regular / 1 Clear. No-op below 26.
-EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
-                                        double w, double h,
-                                        double corner_radius, int32_t style);
-

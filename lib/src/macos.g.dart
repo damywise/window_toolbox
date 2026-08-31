@@ -223,41 +223,6 @@ external void cw_nswindow_order_out(
   ffi.Pointer<ffi.Void> ns_window,
 );
 
-/// macOS 26+: 1 when the public NSGlassEffectView exists at runtime.
-@ffi.Native<ffi.Int32 Function()>()
-external int cw_nswindow_has_liquid_glass();
-
-/// macOS 26+: whole-window Liquid Glass (glass = contentView, content
-/// embedded). style: 0 Regular / 1 Clear. No-op below 26.
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
-external void cw_nswindow_set_glass_backdrop(
-  ffi.Pointer<ffi.Void> ns_window,
-  int style,
-);
-
-/// macOS 26+: inset Liquid Glass panel behind the content (window-local
-/// LOGICAL px, top-left origin). style: 0 Regular / 1 Clear. No-op below 26.
-@ffi.Native<
-  ffi.Void Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Int32,
-  )
->()
-external void cw_nswindow_set_glass_panel(
-  ffi.Pointer<ffi.Void> ns_window,
-  double x,
-  double y,
-  double w,
-  double h,
-  double corner_radius,
-  int style,
-);
-
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
 external void cw_nswindow_set_capture_exclusion(
   ffi.Pointer<ffi.Void> ns_window,
