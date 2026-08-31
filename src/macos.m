@@ -1080,31 +1080,20 @@ EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
   if (_count == 0 || !_rects || !window) {
     return NO;
   }
-  // The rects arrive in FLUTTER's global space: top-left origin of the
-  // PRIMARY display (the windowing embedder's localToGlobal basis). Convert
-  // the cursor (AppKit screen coords, bottom-left of the global union) into
-  // that same space: pure x (primary at x=0), y flipped against the PRIMARY
-  // display's height. NOT the union — with a second display above the primary,
-  // a union-based flip is off by the secondary's height (the exact bug that
-  // put every card rect above the window).
-  static NSScreen *(^PrimaryScreen)(void) = ^NSScreen *{
-    for (NSScreen *sc in [NSScreen screens]) {
-      if (sc.frame.origin.x == 0 && sc.frame.origin.y == 0) {
-        return sc;
-      }
-    }
-    return [NSScreen mainScreen];
-  };
-  NSScreen *primary = PrimaryScreen();
-  CGFloat primaryTop = primary.frame.origin.y + primary.frame.size.height;
-  CGFloat gx = screenPoint.x - primary.frame.origin.x;
-  CGFloat gy = primaryTop - screenPoint.y;
+  // The rects arrive in the window's FLUTTER-LOCAL space (top-left, logical
+  // px) — the windowing embedder's localToGlobal is window-local because each
+  // window is its own coordinate root. Convert the cursor into the SAME space:
+  // AppKit screen coords -> window base via convertPointFromScreen, then flip
+  // Y against the content height. Both sides are window-local by construction,
+  // so display arrangement (second screens above/below) can never skew it.
+  NSPoint winPt = [window convertPointFromScreen:screenPoint];
+  CGFloat y = window.contentView.bounds.size.height - winPt.y;
   for (size_t i = 0; i < _count; i++) {
     double x0 = _rects[i * 4 + 0];
     double y0 = _rects[i * 4 + 1];
     double w = _rects[i * 4 + 2];
     double h = _rects[i * 4 + 3];
-    if (gx >= x0 && gx <= x0 + w && gy >= y0 && gy <= y0 + h) {
+    if (winPt.x >= x0 && winPt.x <= x0 + w && y >= y0 && y <= y0 + h) {
       return YES;
     }
   }
