@@ -485,6 +485,22 @@ cw_rect_t cw_nswindow_get_frame(void *ns_window) {
                      frame.size.height};
 }
 
+/// FULL frame (includes menu bar / dock areas) of [NSScreen screens][index],
+/// in the same FLIPPED top-left global-union space as
+/// [cw_nsscreen_visible_frame]. Centering on this is the MONITOR'S true
+/// center (the visible frame's center is nudged down by the menu bar).
+EXPORT cw_rect_t cw_nsscreen_full_frame(int32_t screen_index) {
+  NSArray<NSScreen *> *screens = [NSScreen screens];
+  if (screen_index < 0 || screen_index >= (int32_t)screens.count) {
+    return (cw_rect_t){0, 0, 0, 0};
+  }
+  NSRect frame = [screens[screen_index] frame];
+  NSRect globalScreenFrame = computeGlobalScreenFrame();
+  flipRect(&frame, &globalScreenFrame);
+  return (cw_rect_t){frame.origin.x, frame.origin.y, frame.size.width,
+                     frame.size.height};
+}
+
 /// Visible frame (excludes menu bar / dock) of [NSScreen screens][index].
 /// Returned in the same FLIPPED top-left global-union space as
 /// [cw_nswindow_get_frame] / [cw_nswindow_set_frame], so callers can hand it
@@ -934,8 +950,8 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
     return;
   }
   NSPoint origin = NSMakePoint(
-      roundf((self.bounds.size.width - _fixedSize.width) / 2),
-      roundf((self.bounds.size.height - _fixedSize.height) / 2));
+      (self.bounds.size.width - _fixedSize.width) / 2,
+      (self.bounds.size.height - _fixedSize.height) / 2);
   if (!NSEqualPoints(content.frame.origin, origin)) {
     // Origin-only move — never a SIZE change, so the engine's resize
     // synchronizer stays untouched.

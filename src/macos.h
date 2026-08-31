@@ -194,3 +194,7 @@ EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
 /// Re-evaluates per-region click-through now (cursor position -> rect check ->
 /// ignoresMouseEvents toggle). Called periodically; no event dependency.
 EXPORT void cw_nswindow_eval_click_through(void *ns_window);
+
+/// FULL frame (includes menu bar / dock) of [NSScreen screens][index], in the
+/// same flipped top-left global-union space as [cw_nsscreen_visible_frame].
+EXPORT cw_rect_t cw_nsscreen_full_frame(int32_t screen_index);

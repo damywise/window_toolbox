@@ -554,3 +554,10 @@ external void cw_nswindow_set_movable_by_background(
 external void cw_nswindow_eval_click_through(
   ffi.Pointer<ffi.Void> ns_window,
 );
+
+/// FULL frame (includes menu bar / dock) of screen [index], flipped top-left
+/// global-union space.
+@ffi.Native<cw_rect_t Function(ffi.Int32)>()
+external cw_rect_t cw_nsscreen_full_frame(
+  int screen_index,
+);

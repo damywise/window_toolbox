@@ -310,6 +310,17 @@ extension WindowControllerOps on BaseWindowController {
   /// global-union space [WindowControllerMacOSExtension.setWindowFrame]
   /// expects — hand it straight to that setter. Returns [Rect.zero] on
   /// non-macOS platforms.
+  /// macOS: the FULL frame (includes menu bar / dock) of the screen at
+  /// [screenIndex], in the same flipped top-left global-union space as
+  /// [visibleScreenFrame]. Center on THIS for the monitor's true center.
+  Rect fullScreenFrame(int screenIndex) {
+    if (this is WindowControllerMacOS) {
+      final r = macos.cw_nsscreen_full_frame(screenIndex);
+      return Rect.fromLTWH(r.x, r.y, r.w, r.h);
+    }
+    return Rect.zero;
+  }
+
   Rect visibleScreenFrame(int screenIndex) {
     if (this is WindowControllerMacOS) {
       return cw_nsscreen_visible_frame(screenIndex);
