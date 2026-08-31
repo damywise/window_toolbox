@@ -1,4 +1,5 @@
 import 'dart:ffi' as ffi;
+import 'package:ffi/ffi.dart';
 import 'dart:io';
 import 'dart:ui' show Rect;
 
@@ -152,6 +153,77 @@ extension WindowControllerOps on BaseWindowController {
         width,
         height,
       );
+    }
+  }
+
+
+  /// macOS 26+: makes the WHOLE window a Liquid Glass surface (the glass view
+  /// becomes the window's content view with the Flutter content EMBEDDED as
+  /// its contentView — the documented model). [style]: 0 Regular, 1 Clear.
+  /// No-op below macOS 26 / non-macOS.
+  void setGlassBackdrop({int style = 0}) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      macos.cw_nswindow_set_glass_backdrop(
+          (this as WindowControllerMacOS).windowHandle, style);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
+  /// macOS 26+: insets a Liquid Glass PANEL behind the Flutter content at
+  /// [rect] (window-local LOGICAL px, top-left origin), rounded with
+  /// [cornerRadius] (0 = square). [style]: 0 Regular, 1 Clear. Repeated calls
+  /// REPLACE the previous panel (one glass surface per window). No-op below
+  /// macOS 26 / non-macOS.
+  void setGlassPanel(Rect? rect, {double cornerRadius = 16, int style = 0}) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      final handle = (this as WindowControllerMacOS).windowHandle;
+      final r = rect;
+      if (r == null || r.isEmpty) return;
+      macos.cw_nswindow_set_glass_panel(
+          handle, r.left, r.top, r.width, r.height, cornerRadius, style);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
+  /// macOS 26+: 1 when Clear/Regular Liquid Glass is available at runtime.
+  /// No-op (0) elsewhere.
+  bool hasLiquidGlass() {
+    if (!Platform.isMacOS) return false;
+    try {
+      return macos.cw_nswindow_has_liquid_glass() != 0;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// macOS: per-region click-through — the window stays interactive ONLY
+  /// inside [rects] (window-local LOGICAL px, top-left origin, the same space
+  /// as [WindowControllerMacOSExtension.getWindowFrame]'s origin minus the
+  /// window origin). Empty → the whole window passes mouse through.
+  void setClickThroughRects(List<Rect> rects) {
+    if (this is! WindowControllerMacOS) return;
+    if (rects.isEmpty) {
+      macos.cw_nswindow_set_click_through_rects(
+          (this as WindowControllerMacOS).windowHandle, ffi.nullptr, 0);
+      return;
+    }
+    final buf = calloc<ffi.Double>(rects.length * 4);
+    try {
+      for (var i = 0; i < rects.length; i++) {
+        final r = rects[i];
+        buf[i * 4] = r.left;
+        buf[i * 4 + 1] = r.top;
+        buf[i * 4 + 2] = r.width;
+        buf[i * 4 + 3] = r.height;
+      }
+      macos.cw_nswindow_set_click_through_rects(
+          (this as WindowControllerMacOS).windowHandle, buf, rects.length);
+    } finally {
+      calloc.free(buf);
     }
   }
 

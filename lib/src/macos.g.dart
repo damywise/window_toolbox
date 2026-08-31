@@ -469,3 +469,54 @@ final class cw_delegate_config_t extends ffi.Struct {
   >
   on_window_will_use_standard_frame;
 }
+
+/// macOS 26+: 1 when the public NSGlassEffectView exists at runtime.
+@ffi.Native<ffi.Int32 Function()>()
+external int cw_nswindow_has_liquid_glass();
+
+/// macOS 26+: whole-window Liquid Glass (glass = contentView, content
+/// embedded). style: 0 Regular / 1 Clear. No-op below 26.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
+external void cw_nswindow_set_glass_backdrop(
+  ffi.Pointer<ffi.Void> ns_window,
+  int style,
+);
+
+/// macOS 26+: inset Liquid Glass panel behind the content (window-local
+/// LOGICAL px, top-left origin). style: 0 Regular / 1 Clear. No-op below 26.
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Int32,
+  )
+>()
+external void cw_nswindow_set_glass_panel(
+  ffi.Pointer<ffi.Void> ns_window,
+  double x,
+  double y,
+  double w,
+  double h,
+  double corner_radius,
+  int style,
+);
+
+/// Per-region click-through: interactive only inside the given window-local
+/// LOGICAL rects (flat x,y,w,h doubles; rect_count quads). 0/NULL = fully
+/// click-through.
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Pointer<ffi.Double>,
+    ffi.Size,
+  )
+>()
+external void cw_nswindow_set_click_through_rects(
+  ffi.Pointer<ffi.Void> ns_window,
+  ffi.Pointer<ffi.Double> rects,
+  int rect_count,
+);

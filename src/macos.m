@@ -767,3 +767,232 @@ EXPORT void cw_nswindow_set_background_clear(void *ns_window) {
 }
 
 @end
+
+@interface CWGlassEffectView : NSGlassEffectView
+
+@end
+
+@implementation CWGlassEffectView
+
+- (NSView *)hitTest:(NSPoint)point {
+  NSView *content = self.contentView;
+  if (content && content != self) {
+    if (CGRectContainsPoint(content.frame, point)) {
+      return [content hitTest:[self convertPoint:point toView:content]];
+    }
+    return nil;
+  }
+  return nil;
+}
+
+@end
+
+/// Flipped container used by the panel path so a native glass view can sit
+/// UNDER the Flutter content surface (same wrap pattern the drag overlay
+/// uses via cw_nswindow_update_draggable_areas).
+@interface CWGlassContainer : NSView
+
+@end
+
+@implementation CWGlassContainer
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+@end
+
+/// macOS 26+: 1 when the public NSGlassEffectView class exists at runtime,
+/// 0 otherwise.
+EXPORT int32_t cw_nswindow_has_liquid_glass(void) {
+  return NSClassFromString(@"NSGlassEffectView") != nil ? 1 : 0;
+}
+
+/// macOS 26+: makes the WHOLE window a Liquid Glass surface — the glass view
+/// becomes the window's contentView with the existing content (the Flutter
+/// view) EMBEDDED as its contentView (the documented model: "a view that
+/// embeds its content view in a dynamic glass effect"). [style]: 0 = Regular
+/// glass, 1 = Clear glass. No-op below macOS 26.
+EXPORT void cw_nswindow_set_glass_backdrop(void *ns_window, int32_t style) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *current = window.contentView;
+  if (!current) {
+    return;
+  }
+  if (@available(macOS 26.0, *)) {
+    CWGlassEffectView *glass =
+        [[CWGlassEffectView alloc] initWithFrame:current.bounds];
+    glass.style = style == 1 ? NSGlassEffectViewStyleClear
+                             : NSGlassEffectViewStyleRegular;
+    glass.contentView = current;
+    current.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = glass;
+    fprintf(stderr,
+            "[cw-glass] backdrop: window %s contentView=%s (style %s)\n",
+            class_getName([window class]),
+            NSStringFromClass([current class]).UTF8String,
+            style == 1 ? "clear" : "regular");
+  }
+}
+
+static void *kCWGlassPanelKey = &kCWGlassPanelKey;
+
+/// macOS 26+: insets a Liquid Glass PANEL behind the Flutter content at
+/// window-local LOGICAL px (top-left origin, matching Flutter's coords),
+/// rounded with [corner_radius]. [style]: 0 Regular / 1 Clear. First call
+/// wraps the content in a flipped container so the glass can sit UNDER the
+/// Flutter surface (z-order guaranteed by explicit relativeTo:). REPEATED
+/// calls REPLACE the existing panel (one glass surface per window — never
+/// stack glass-on-glass; the skills' anti-pattern). No-op below macOS 26.
+EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
+                                        double w, double h,
+                                        double corner_radius, int32_t style) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *contentView = window.contentView;
+  if (!contentView) {
+    return;
+  }
+  if (@available(macOS 26.0, *)) {
+    // Drop the previous panel so repeated calls update in place.
+    CWGlassEffectView *previous =
+        objc_getAssociatedObject(window, kCWGlassPanelKey);
+    if (previous && previous.superview) {
+      [previous removeFromSuperview];
+      objc_setAssociatedObject(window, kCWGlassPanelKey, nil,
+                               OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    NSView *container = contentView;
+    if (![container isKindOfClass:[CWGlassContainer class]]) {
+      if (CGRectIsEmpty(contentView.bounds)) {
+        fprintf(stderr, "[cw-glass] panel: skipping wrap, empty bounds\n");
+        return;
+      }
+      container = [[CWGlassContainer alloc] initWithFrame:contentView.bounds];
+      NSView *old = contentView;
+      [container addSubview:old];
+      old.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+      window.contentView = container;
+      fprintf(stderr, "[cw-glass] panel: wrapped contentView\n");
+    }
+    CWGlassEffectView *glass =
+        [[CWGlassEffectView alloc] initWithFrame:NSMakeRect(x, y, w, h)];
+    glass.style = style == 1 ? NSGlassEffectViewStyleClear
+                             : NSGlassEffectViewStyleRegular;
+    glass.cornerRadius = corner_radius;
+    [container addSubview:glass
+                positioned:NSWindowBelow
+                relativeTo:contentView];
+    objc_setAssociatedObject(window, kCWGlassPanelKey, glass,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    fprintf(stderr,
+            "[cw-glass] panel: %.0fx%.0f at (%.0f,%.0f) style %s\n",
+            w, h, x, y, style == 1 ? "clear" : "regular");
+  }
+}
+
+
+
+/// Per-region click-through container: the window is transparent to the mouse
+/// EXCEPT inside the registered rects. The Flutter surface is wrapped in this
+/// container whose -hitTest: returns the normal result inside the rects and
+/// nil outside — a nil hit means the click is not claimed by this window
+/// (it falls through to the windows behind, matching the Win32 passthrough).
+@interface CWHitTestContainer : NSView {
+  double *_rects;  // flat x,y,w,h quads, window-LOCAL LOGICAL px, top-left
+  size_t _count;
+}
+
+- (void)setRects:(const double *)rects count:(size_t)count;
+@end
+
+@implementation CWHitTestContainer
+
+- (void)dealloc {
+  free(_rects);
+}
+
+- (void)setRects:(const double *)rects count:(size_t)count {
+  free(_rects);
+  _rects = NULL;
+  _count = 0;
+  if (count > 0 && rects) {
+    _rects = malloc(sizeof(double) * count * 4);
+    _count = count;
+    memcpy(_rects, rects, sizeof(double) * count * 4);
+  }
+}
+
+- (NSView *)hitTest:(NSPoint)aPoint {
+  if (_count == 0 || !_rects) {
+    // No interactive regions registered: the whole surface is click-through.
+    return nil;
+  }
+  // aPoint arrives in superview coords — this container fills the window, so
+  // convert to window base coords, then flip to the top-left space the rects
+  // use (same basis as Flutter's localToGlobal minus the window origin).
+  NSPoint winPt = [self convertPoint:aPoint fromView:nil];
+  CGFloat y = self.bounds.size.height - winPt.y;
+  for (size_t i = 0; i < _count; i++) {
+    double x0 = _rects[i * 4 + 0];
+    double y0 = _rects[i * 4 + 1];
+    double w = _rects[i * 4 + 2];
+    double h = _rects[i * 4 + 3];
+    if (winPt.x >= x0 && winPt.x <= x0 + w && y >= y0 && y <= y0 + h) {
+      return [super hitTest:aPoint];
+    }
+  }
+  return nil;
+}
+
+@end
+
+static void *kCWHitTestRectsKey = &kCWHitTestRectsKey;
+
+/// Registers the window-LOCAL LOGICAL (top-left origin) interactive regions
+/// for per-region click-through (see CWHitTestContainer). [rects] is a flat
+/// x,y,w,h quad array; [rect_count] quads. NULL/0 makes the whole window
+/// click-through. Wraps the Flutter content once; later calls only update
+/// the rect list.
+EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
+                                                const double *rects,
+                                                size_t rect_count) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  [window setIgnoresMouseEvents:NO];  // selective hit-testing drives clicks
+  NSView *contentView = window.contentView;
+  if (!contentView) {
+    return;
+  }
+  CWHitTestContainer *hit =
+      [contentView isKindOfClass:[CWHitTestContainer class]]
+          ? (CWHitTestContainer *)contentView
+          : nil;
+  if (rect_count == 0 || !rects) {
+    if (hit) {
+      [hit setRects:NULL count:0];
+    }
+    return;
+  }
+  if (!hit) {
+    if (CGRectIsEmpty(contentView.bounds)) {
+      return;
+    }
+    hit = [[CWHitTestContainer alloc] initWithFrame:contentView.bounds];
+    NSView *old = contentView;
+    [hit addSubview:old];
+    old.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    window.contentView = hit;
+    objc_setAssociatedObject(window, kCWHitTestRectsKey, hit,
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+  }
+  [hit setRects:rects count:rect_count];
+}
+
