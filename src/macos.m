@@ -941,6 +941,14 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
     // synchronizer stays untouched.
     [content setFrameOrigin:origin];
   }
+  fprintf(stderr,
+          "[cw-mid] center: winFrame=(%.0f,%.0f %.0fx%.0f) container=(%.0fx%.0f) "
+          "view=(%.0f,%.0f %.0fx%.0f)\n",
+          self.window.frame.origin.x, self.window.frame.origin.y,
+          self.window.frame.size.width, self.window.frame.size.height,
+          self.bounds.size.width, self.bounds.size.height,
+          content.frame.origin.x, content.frame.origin.y,
+          content.frame.size.width, content.frame.size.height);
 }
 
 // AppKit does NOT call -layout on plain views when their frame changes, so
@@ -996,28 +1004,38 @@ EXPORT void cw_nswindow_setup_middle_window(void *ns_window,
     return;
   }
   NSSize fixed = contentView.bounds.size;
+  // Host view fills the window; inside it the CONTAINER (also window-filling)
+  // holds the fixed-size FlutterView, and the glass is a SIBLING keyed below.
+  // The content scale is applied to the CONTAINER's layer — its center is
+  // ALWAYS the window center, so the card grows/shrinks around the true
+  // center regardless of the FlutterView's own layer anchor. The glass sibling
+  // is untouched by the transform.
+  NSView *host = [[NSView alloc] initWithFrame:contentView.bounds];
+  host.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   CWResizeWindowContainer *container =
       [[CWResizeWindowContainer alloc] initWithFixedSize:fixed];
-  container.frame = contentView.bounds;
+  container.frame = host.bounds;
   container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  container.wantsLayer = YES;   // the layer transform target
   NSView *old = contentView;
   [container addSubview:old];
   old.autoresizingMask = NSViewNotSizable;  // never resize the FlutterView
-  window.contentView = container;
+  [host addSubview:container];
+  window.contentView = host;
   // Stop AppKit from re-sized the contentViewController's view to the window
   // on every frame change (it would resize the FlutterView and re-trigger the
   // engine's resize synchronizer). The engine keeps its controller + view.
   window.contentViewController = nil;
   if (@available(macOS 26.0, *)) {
     CWGlassEffectView *glass =
-        [[CWGlassEffectView alloc] initWithFrame:container.bounds];
+        [[CWGlassEffectView alloc] initWithFrame:host.bounds];
     glass.style = style == 1 ? NSGlassEffectViewStyleClear
                              : NSGlassEffectViewStyleRegular;
     glass.cornerRadius = corner_radius;
     glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [container addSubview:glass
-                positioned:NSWindowBelow
-                relativeTo:old];
+    [host addSubview:glass
+            positioned:NSWindowBelow
+            relativeTo:container];
     fprintf(stderr,
             "[cw-glass] middle: fixed content %.0fx%.0f, glass style %s\n",
             fixed.width, fixed.height, style == 1 ? "clear" : "regular");
@@ -1036,16 +1054,34 @@ EXPORT void cw_nswindow_set_content_scale(void *ns_window, double scale) {
   if (!window) {
     return;
   }
-  NSView *contentView = window.contentView;
-  if (![contentView isKindOfClass:[CWResizeWindowContainer class]]) {
-    return;
+  // Find the container anywhere under the content view (it may sit under a
+  // host view with the glass sibling).
+  CWResizeWindowContainer *container = nil;
+  NSView *cv = window.contentView;
+  if ([cv isKindOfClass:[CWResizeWindowContainer class]]) {
+    container = (CWResizeWindowContainer *)cv;
+  } else {
+    for (NSView *sub in cv.subviews) {
+      if ([sub isKindOfClass:[CWResizeWindowContainer class]]) {
+        container = (CWResizeWindowContainer *)sub;
+        break;
+      }
+    }
   }
-  NSView *flutter = [(CWResizeWindowContainer *)contentView flutterView];
-  if (!flutter || !flutter.layer) {
+  if (!container || !container.layer) {
     return;
   }
   CGFloat s = (CGFloat)(scale > 0.05 ? scale : 0.05);
-  flutter.layer.transform = CATransform3DMakeScale(s, s, 1.0);
+  container.layer.transform = CATransform3DMakeScale(s, s, 1.0);
+  if (window) {
+    fprintf(stderr,
+            "[cw-mid] scale: s=%.2f container=(%.0f,%.0f %.0fx%.0f) "
+            "winFrame=(%.0f,%.0f %.0fx%.0f)\n",
+            s, container.frame.origin.x, container.frame.origin.y,
+            container.frame.size.width, container.frame.size.height,
+            window.frame.origin.x, window.frame.origin.y,
+            window.frame.size.width, window.frame.size.height);
+  }
 }
 
 /// NSWindow.movableByWindowBackground: NO keeps the overlay windows
