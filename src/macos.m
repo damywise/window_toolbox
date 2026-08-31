@@ -928,16 +928,35 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
   return YES;
 }
 
-- (void)layout {
-  [super layout];
+- (void)centerContent {
   NSView *content = self.subviews.lastObject;
   if (!content || _fixedSize.width <= 0 || _fixedSize.height <= 0) {
     return;
   }
-  content.frame = NSMakeRect(
+  NSPoint origin = NSMakePoint(
       roundf((self.bounds.size.width - _fixedSize.width) / 2),
-      roundf((self.bounds.size.height - _fixedSize.height) / 2),
-      _fixedSize.width, _fixedSize.height);
+      roundf((self.bounds.size.height - _fixedSize.height) / 2));
+  if (!NSEqualPoints(content.frame.origin, origin)) {
+    // Origin-only move — never a SIZE change, so the engine's resize
+    // synchronizer stays untouched.
+    [content setFrameOrigin:origin];
+  }
+}
+
+// AppKit does NOT call -layout on plain views when their frame changes, so
+// centering from -layout alone never ran while the window resized — the
+// FlutterView stayed pinned at the window's top-left (its pre-wrap origin),
+// making the layer-scaled card orbit that corner instead of the window
+// center. -setFrameSize: on the content view fires on every window resize.
+- (void)setFrameSize:(NSSize)newSize {
+  [super setFrameSize:newSize];
+  [self setNeedsLayout:YES];
+  [self centerContent];
+}
+
+- (void)layout {
+  [super layout];
+  [self centerContent];
 }
 
 - (NSView *)flutterView {
