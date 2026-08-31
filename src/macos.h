@@ -173,3 +173,20 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
 EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
                                                 const double *rects,
                                                 size_t rect_count);
+
+/// One-shot NATIVE setup for the middle notification window: fixed-size,
+/// centered Flutter content (window frame can animate without the engine's
+/// resize synchronizer), Clear/Regular Liquid Glass panel (autoresizes with
+/// the window), full click-through, non-draggable. Call once at creation.
+EXPORT void cw_nswindow_setup_middle_window(void *ns_window,
+                                            double corner_radius,
+                                            int32_t style);
+
+/// Scales the middle notification's rendered content via the FlutterView's
+/// LAYER transform (GPU compositing — no engine layout / resize sync).
+EXPORT void cw_nswindow_set_content_scale(void *ns_window, double scale);
+
+/// [NSWindow movableByWindowBackground]: NO keeps overlay windows
+/// non-draggable so clicks reach the Flutter content.
+EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
+                                                  bool movable);

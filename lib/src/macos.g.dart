@@ -520,3 +520,30 @@ external void cw_nswindow_set_click_through_rects(
   ffi.Pointer<ffi.Double> rects,
   int rect_count,
 );
+
+/// One-shot setup for the middle notification window (fixed-size centered
+/// content + glass panel + full click-through + non-draggable).
+@ffi.Native<
+  ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double, ffi.Int32)
+>()
+external void cw_nswindow_setup_middle_window(
+  ffi.Pointer<ffi.Void> ns_window,
+  double corner_radius,
+  int style,
+);
+
+/// Scales the middle notification's rendered content via the FlutterView's
+/// layer transform (GPU compositing) — the window-size animation companion.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
+external void cw_nswindow_set_content_scale(
+  ffi.Pointer<ffi.Void> ns_window,
+  double scale,
+);
+
+/// NSWindow movableByWindowBackground (NO keeps overlay windows non-draggable
+/// so clicks reach Flutter content).
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external void cw_nswindow_set_movable_by_background(
+  ffi.Pointer<ffi.Void> ns_window,
+  bool movable,
+);

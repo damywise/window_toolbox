@@ -200,6 +200,48 @@ extension WindowControllerOps on BaseWindowController {
     }
   }
 
+  /// macOS: one-shot NATIVE setup for the middle notification window — the
+  /// Flutter surface is fixed-size + always-centered (so the window frame can
+  /// animate WITHOUT the engine's resize synchronizer), the Clear/Regular
+  /// Liquid Glass panel (autoresizes with the window) sits behind the card,
+  /// and the window is fully click-through + non-draggable. Call once at
+  /// creation, never per animation frame.
+  void setupMiddleWindow({double cornerRadius = 16, int style = 0}) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      macos.cw_nswindow_setup_middle_window(
+          (this as WindowControllerMacOS).windowHandle, cornerRadius, style);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
+  /// macOS: scales the middle notification's rendered content via the
+  /// FlutterView's LAYER transform (GPU compositing, no engine layout) so the
+  /// card tracks the window-frame animation.
+  void setContentScale(double scale) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      macos.cw_nswindow_set_content_scale(
+          (this as WindowControllerMacOS).windowHandle, scale);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
+  /// macOS: NSWindow movableByWindowBackground — NO keeps the overlay windows
+  /// non-draggable so mouse events reach the Flutter content (the frameless
+  /// path enables background dragging by default, swallowing click-drags).
+  void setMovableByBackground(bool movable) {
+    if (this is! WindowControllerMacOS) return;
+    try {
+      macos.cw_nswindow_set_movable_by_background(
+          (this as WindowControllerMacOS).windowHandle, movable);
+    } on Object {
+      // Window already destroyed mid-teardown — nothing to set.
+    }
+  }
+
   /// macOS: per-region click-through — the window stays interactive ONLY
   /// inside [rects] (window-local LOGICAL px, top-left origin, the same space
   /// as [WindowControllerMacOSExtension.getWindowFrame]'s origin minus the

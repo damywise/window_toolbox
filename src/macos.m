@@ -2,6 +2,7 @@
 
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
+#import <QuartzCore/QuartzCore.h>
 
 #import "window_buttons_proxy.h"
 
@@ -898,20 +899,167 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
 
 
 
-/// Per-region click-through container: the window is transparent to the mouse
-/// EXCEPT inside the registered rects. The Flutter surface is wrapped in this
-/// container whose -hitTest: returns the normal result inside the rects and
-/// nil outside — a nil hit means the click is not claimed by this window
-/// (it falls through to the windows behind, matching the Win32 passthrough).
-@interface CWHitTestContainer : NSView {
-  double *_rects;  // flat x,y,w,h quads, window-LOCAL LOGICAL px, top-left
+/// Container that keeps the Flutter surface at a FIXED size (captured from
+/// the window's initial content size) and re-CENTERS it as the window
+/// resizes. The window can then animate its frame freely WITHOUT ever
+/// resizing the FlutterView — a view resize is precisely what trips the
+/// engine's ResizeSynchronizer ("Resize timed out" + frame stalls). The
+/// card's apparent growth is done with a LAYER scale (GPU compositing, no
+/// engine involvement) plus a window-alpha fade, all outside the resize path.
+@interface CWResizeWindowContainer : NSView {
+  NSSize _fixedSize;
+}
+
+- (instancetype)initWithFixedSize:(NSSize)size;
+- (NSView *)flutterView;
+@end
+
+@implementation CWResizeWindowContainer
+
+- (instancetype)initWithFixedSize:(NSSize)size {
+  self = [super initWithFrame:NSZeroRect];
+  if (self) {
+    _fixedSize = size;
+  }
+  return self;
+}
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+- (void)layout {
+  [super layout];
+  NSView *content = self.subviews.lastObject;
+  if (!content || _fixedSize.width <= 0 || _fixedSize.height <= 0) {
+    return;
+  }
+  content.frame = NSMakeRect(
+      roundf((self.bounds.size.width - _fixedSize.width) / 2),
+      roundf((self.bounds.size.height - _fixedSize.height) / 2),
+      _fixedSize.width, _fixedSize.height);
+}
+
+- (NSView *)flutterView {
+  return self.subviews.lastObject;
+}
+
+@end
+
+/// One-shot NATIVE setup for the middle notification window (call once, at
+/// creation — never per animation frame):
+///  - the Flutter surface becomes a FIXED-size, always-centered layer (see
+///    CWResizeWindowContainer) so the window frame can animate without the
+///    engine's resize synchronizer;
+///  - the Clear/Regular Liquid Glass panel (whole window, rounded) sits
+///    behind the content and AUTORESIZES with the window through every
+///    animation stage;
+///  - the window is fully click-through (all mouse passes to the desktop)
+///    and cannot be dragged by its background.
+EXPORT void cw_nswindow_setup_middle_window(void *ns_window,
+                                            double corner_radius,
+                                            int32_t style) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *contentView = window.contentView;
+  if (!contentView) {
+    return;
+  }
+  window.movableByWindowBackground = NO;
+  [window setIgnoresMouseEvents:YES];
+  if ([contentView isKindOfClass:[CWResizeWindowContainer class]]) {
+    return;  // already set up once
+  }
+  if (CGRectIsEmpty(contentView.bounds)) {
+    fprintf(stderr, "[cw-glass] middle: skipping wrap, empty bounds\n");
+    return;
+  }
+  NSSize fixed = contentView.bounds.size;
+  CWResizeWindowContainer *container =
+      [[CWResizeWindowContainer alloc] initWithFixedSize:fixed];
+  container.frame = contentView.bounds;
+  container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  NSView *old = contentView;
+  [container addSubview:old];
+  old.autoresizingMask = NSViewNotSizable;  // never resize the FlutterView
+  window.contentView = container;
+  // Stop AppKit from re-sized the contentViewController's view to the window
+  // on every frame change (it would resize the FlutterView and re-trigger the
+  // engine's resize synchronizer). The engine keeps its controller + view.
+  window.contentViewController = nil;
+  if (@available(macOS 26.0, *)) {
+    CWGlassEffectView *glass =
+        [[CWGlassEffectView alloc] initWithFrame:container.bounds];
+    glass.style = style == 1 ? NSGlassEffectViewStyleClear
+                             : NSGlassEffectViewStyleRegular;
+    glass.cornerRadius = corner_radius;
+    glass.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [container addSubview:glass
+                positioned:NSWindowBelow
+                relativeTo:old];
+    fprintf(stderr,
+            "[cw-glass] middle: fixed content %.0fx%.0f, glass style %s\n",
+            fixed.width, fixed.height, style == 1 ? "clear" : "regular");
+  } else {
+    fprintf(stderr, "[cw-glass] middle: fixed content %.0fx%.0f, no glass\n",
+            fixed.width, fixed.height);
+  }
+}
+
+/// Scales the middle notification's rendered CONTENT via the FlutterView's
+/// layer transform (GPU compositing — no engine layout, no resize
+/// synchronizer). The card grows/shrinks in lockstep with the window frame;
+/// scale 1.0 = the card's design size.
+EXPORT void cw_nswindow_set_content_scale(void *ns_window, double scale) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (!window) {
+    return;
+  }
+  NSView *contentView = window.contentView;
+  if (![contentView isKindOfClass:[CWResizeWindowContainer class]]) {
+    return;
+  }
+  NSView *flutter = [(CWResizeWindowContainer *)contentView flutterView];
+  if (!flutter || !flutter.layer) {
+    return;
+  }
+  CGFloat s = (CGFloat)(scale > 0.05 ? scale : 0.05);
+  flutter.layer.transform = CATransform3DMakeScale(s, s, 1.0);
+}
+
+/// NSWindow.movableByWindowBackground: NO keeps the overlay windows
+/// non-draggable so mouse events reach the Flutter content (the frameless
+/// make-frameless path sets YES by default, which swallows every click-drag).
+EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
+                                                  bool movable) {
+  NSWindow *window = (__bridge NSWindow *)ns_window;
+  if (window) {
+    window.movableByWindowBackground = movable;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-region click-through (edge notification stack).
+//
+// The window is kept FULLY click-through via [NSWindow setIgnoresMouseEvents:]
+// and a GLOBAL mouse-move monitor flips it back to interactive ONLY while the
+// cursor is over a registered toast-card rect — the mechanism overlay apps
+// with "interactive shapes" actually rely on (a nil -hitTest: does NOT pass
+// the click to the window below; ignoresMouseEvents does).
+// ---------------------------------------------------------------------------
+
+@interface CWMouseRectsBox : NSObject {
+  double *_rects;
   size_t _count;
 }
 
 - (void)setRects:(const double *)rects count:(size_t)count;
+- (BOOL)containsScreenPoint:(NSPoint)screenPoint inWindow:(NSWindow *)window;
 @end
 
-@implementation CWHitTestContainer
+@implementation CWMouseRectsBox
 
 - (void)dealloc {
   free(_rects);
@@ -923,42 +1071,57 @@ EXPORT void cw_nswindow_set_glass_panel(void *ns_window, double x, double y,
   _count = 0;
   if (count > 0 && rects) {
     _rects = malloc(sizeof(double) * count * 4);
-    _count = count;
     memcpy(_rects, rects, sizeof(double) * count * 4);
+    _count = count;
   }
 }
 
-- (NSView *)hitTest:(NSPoint)aPoint {
-  if (_count == 0 || !_rects) {
-    // No interactive regions registered: the whole surface is click-through.
-    return nil;
+- (BOOL)containsScreenPoint:(NSPoint)screenPoint inWindow:(NSWindow *)window {
+  if (_count == 0 || !_rects || !window) {
+    return NO;
   }
-  // aPoint arrives in superview coords — this container fills the window, so
-  // convert to window base coords, then flip to the top-left space the rects
-  // use (same basis as Flutter's localToGlobal minus the window origin).
-  NSPoint winPt = [self convertPoint:aPoint fromView:nil];
-  CGFloat y = self.bounds.size.height - winPt.y;
+  // Screen coords -> window-base coords, then flip to the top-left WINDOW-LOCAL
+  // logical space the rects use (same basis as Flutter localToGlobal minus the
+  // window origin).
+  NSPoint winPt = [window convertPointFromScreen:screenPoint];
+  CGFloat y = window.contentView.bounds.size.height - winPt.y;
   for (size_t i = 0; i < _count; i++) {
     double x0 = _rects[i * 4 + 0];
     double y0 = _rects[i * 4 + 1];
     double w = _rects[i * 4 + 2];
     double h = _rects[i * 4 + 3];
     if (winPt.x >= x0 && winPt.x <= x0 + w && y >= y0 && y <= y0 + h) {
-      return [super hitTest:aPoint];
+      return YES;
     }
   }
-  return nil;
+  return NO;
 }
 
 @end
 
-static void *kCWHitTestRectsKey = &kCWHitTestRectsKey;
+static void *kCWMouseRectsBoxKey = &kCWMouseRectsBoxKey;
+static NSHashTable *gClickWindows = nil;
+static BOOL gClickMonitorInstalled = NO;
 
-/// Registers the window-LOCAL LOGICAL (top-left origin) interactive regions
-/// for per-region click-through (see CWHitTestContainer). [rects] is a flat
-/// x,y,w,h quad array; [rect_count] quads. NULL/0 makes the whole window
-/// click-through. Wraps the Flutter content once; later calls only update
-/// the rect list.
+static void CWEvalClickThrough(NSWindow *window) {
+  CWMouseRectsBox *box = objc_getAssociatedObject(window, kCWMouseRectsBoxKey);
+  if (!box) {
+    return;
+  }
+  BOOL inside = [box containsScreenPoint:[NSEvent mouseLocation]
+                                inWindow:window];
+  if (inside == ![window ignoresMouseEvents]) {
+    return;  // already in the right state
+  }
+  [window setIgnoresMouseEvents:!inside];
+}
+
+/// Registers the window-LOCAL LOGICAL (top-left origin) interactive rects for
+/// per-region click-through: the window stays click-through everywhere and is
+/// flipped interactive only while the cursor hovers a rect. NULL/0 rects =
+/// the whole window stays click-through. Safe to call repeatedly (layout /
+/// scroll changes) — rects are simply replaced; the global monitor is
+/// installed once.
 EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
                                                 const double *rects,
                                                 size_t rect_count) {
@@ -966,33 +1129,28 @@ EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
   if (!window) {
     return;
   }
-  [window setIgnoresMouseEvents:NO];  // selective hit-testing drives clicks
-  NSView *contentView = window.contentView;
-  if (!contentView) {
-    return;
-  }
-  CWHitTestContainer *hit =
-      [contentView isKindOfClass:[CWHitTestContainer class]]
-          ? (CWHitTestContainer *)contentView
-          : nil;
-  if (rect_count == 0 || !rects) {
-    if (hit) {
-      [hit setRects:NULL count:0];
-    }
-    return;
-  }
-  if (!hit) {
-    if (CGRectIsEmpty(contentView.bounds)) {
-      return;
-    }
-    hit = [[CWHitTestContainer alloc] initWithFrame:contentView.bounds];
-    NSView *old = contentView;
-    [hit addSubview:old];
-    old.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    window.contentView = hit;
-    objc_setAssociatedObject(window, kCWHitTestRectsKey, hit,
+  CWMouseRectsBox *box = objc_getAssociatedObject(window, kCWMouseRectsBoxKey);
+  if (!box) {
+    box = [[CWMouseRectsBox alloc] init];
+    objc_setAssociatedObject(window, kCWMouseRectsBoxKey, box,
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   }
-  [hit setRects:rects count:rect_count];
+  [box setRects:rects count:rect_count];
+  [window setIgnoresMouseEvents:rect_count == 0 || rects == NULL];
+  if (gClickWindows == nil) {
+    gClickWindows = [NSHashTable weakObjectsHashTable];
+  }
+  if (![gClickWindows containsObject:window]) {
+    [gClickWindows addObject:window];
+  }
+  if (!gClickMonitorInstalled) {
+    gClickMonitorInstalled = YES;
+    [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+        handler:^(NSEvent *event) {
+          for (NSWindow *win in [gClickWindows allObjects]) {
+            CWEvalClickThrough(win);
+          }
+        }];
+  }
+  CWEvalClickThrough(window);
 }
-
