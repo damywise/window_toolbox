@@ -1101,7 +1101,8 @@ EXPORT void cw_nswindow_set_movable_by_background(void *ns_window,
 
 static void *kCWMouseRectsBoxKey = &kCWMouseRectsBoxKey;
 static NSHashTable *gClickWindows = nil;
-static BOOL gClickMonitorInstalled = NO;
+static BOOL gClickLocalMonitorInstalled = NO;
+static BOOL gClickGlobalMonitorInstalled = NO;
 
 static void CWEvalClickThrough(NSWindow *window) {
   CWMouseRectsBox *box = objc_getAssociatedObject(window, kCWMouseRectsBoxKey);
@@ -1140,6 +1141,10 @@ EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
   }
   [box setRects:rects count:rect_count];
   [window setIgnoresMouseEvents:rect_count == 0 || rects == NULL];
+  // Opt the window into mouse-moved event posting (the window server only
+  // synthesizes moved events where an app has opted in — the local monitor
+  // below is backed by this).
+  [window setAcceptsMouseMovedEvents:YES];
   if (rect_count > 0 && rects) {
     fprintf(stderr, "[cw-ct] setRects: %zu rect(s):", rect_count);
     for (size_t i = 0; i < rect_count && i < 3; i++) {
@@ -1156,9 +1161,32 @@ EXPORT void cw_nswindow_set_click_through_rects(void *ns_window,
   if (![gClickWindows containsObject:window]) {
     [gClickWindows addObject:window];
   }
-  if (!gClickMonitorInstalled) {
-    gClickMonitorInstalled = YES;
-    [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+  // The idler-game pattern: LOCAL + GLOBAL monitors. Mouse-moved events are
+  // NOT delivered to a global monitor when the cursor is over the app's OWN
+  // windows — a LOCAL monitor is what keeps own-window moves flowing (and
+  // opts the app into moved-event posting). The local handler evaluates the
+  // cursor BEFORE the event dispatches, so a click over a card lands while
+  // the window is already interactive. The global one covers other apps.
+  if (!gClickLocalMonitorInstalled) {
+    gClickLocalMonitorInstalled = YES;
+    [NSEvent addLocalMonitorForEventsMatchingMask:
+        NSEventMaskMouseMoved | NSEventMaskLeftMouseDown |
+        NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
+        NSEventMaskRightMouseDown | NSEventMaskRightMouseUp |
+        NSEventMaskScrollWheel
+        handler:^NSEvent *(NSEvent *event) {
+          for (NSWindow *win in [gClickWindows allObjects]) {
+            CWEvalClickThrough(win);
+          }
+          return event;
+        }];
+  }
+  if (!gClickGlobalMonitorInstalled) {
+    gClickGlobalMonitorInstalled = YES;
+    [NSEvent addGlobalMonitorForEventsMatchingMask:
+        NSEventMaskMouseMoved | NSEventMaskLeftMouseDown |
+        NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged |
+        NSEventMaskRightMouseDown | NSEventMaskRightMouseUp
         handler:^(NSEvent *event) {
           for (NSWindow *win in [gClickWindows allObjects]) {
             CWEvalClickThrough(win);
