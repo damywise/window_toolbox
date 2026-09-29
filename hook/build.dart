@@ -69,6 +69,13 @@ void main(List<String> args) async {
           // Everything we need will be linked into the final executable.
         ],
       );
+    } else if (input.config.code.targetOS == OS.windows) {
+      ninjaBuilder = NinjaBuilder.library(
+        name: packageName,
+        assetName: 'windows',
+        sources: ['src/windows.c'],
+        language: Language.c,
+      );
     }
 
     if (ninjaBuilder != null) {
