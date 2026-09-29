@@ -100,6 +100,8 @@ Once that is done, you can place various widgets in your widget tree to build dr
 
 A [complete example](example/lib/main.dart) of fully customized window can be found in the [example](example) directory.
 
+An additional example, [example_rive](example_rive), reproduces the [rive-flutter example app](https://github.com/rive-app/rive-flutter/tree/master/example) 1:1 but boots with Flutter's official experimental windowing API (`runWidget` + `RegularWindow`) instead of any custom window API.
+
 <img src="media/snap_layout.jpg" width="344">
 
 ## Additional window functionality
@@ -113,6 +115,8 @@ This includes:
 - Ability to register custom delegate and message handlers on Windows. See [Win32MessageHandler](lib/src/win32_extra.dart) for more details.
 
 - Ability to register custom delegate on linux. See [WindowDelegateLinux](lib/src/linux_extra.dart) for more details.
+
+- GPU-loss detection on Windows: a dependency-free C module (`src/windows.c`) that watches the engine's D3D11 adapter and posts a host-chosen message when the device is lost, so the app can recreate the engine. See [docs/gpu_recovery.md](docs/gpu_recovery.md).
 
 #### Example: Setting [NSWindowCollectionBehavior](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct) on macOS
 
