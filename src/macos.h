@@ -142,6 +142,9 @@ EXPORT double cw_drag_overlay_screen_height(void);
 EXPORT double cw_drag_overlay_backing_scale(void);
 EXPORT int32_t cw_drag_overlay_left_mouse_down(void);
 EXPORT int32_t cw_drag_overlay_right_mouse_down(void);
+/// Global Escape key state (CGEventSource — mirrors the mouse-button probes
+/// above for drag gestures the main window no longer owns).
+EXPORT int32_t cw_drag_overlay_escape_down(void);
 
 EXPORT void cw_hooks_init(void);
 EXPORT void cw_hooks_set_window_event_callback(

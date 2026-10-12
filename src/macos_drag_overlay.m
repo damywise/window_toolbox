@@ -229,3 +229,7 @@ EXPORT int32_t cw_drag_overlay_left_mouse_down(void) {
 EXPORT int32_t cw_drag_overlay_right_mouse_down(void) {
   return (NSEvent.pressedMouseButtons & 2) != 0 ? 1 : 0;
 }
+
+EXPORT int32_t cw_drag_overlay_escape_down(void) {
+  return CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState, 53) ? 1 : 0;
+}

@@ -209,15 +209,13 @@ external void cw_nswindow_order_front(
   ffi.Pointer<ffi.Void> ns_window,
 );
 
-/// Visible frame (excludes menu bar / dock) of `NSScreen screens[index]`
+/// Visible frame (excludes menu bar / dock) of [NSScreen screens][index]
 /// in the flipped top-left global-union space (same as cw_nswindow_get_frame).
 @ffi.Native<cw_rect_t Function(ffi.Int32)>()
 external cw_rect_t cw_nsscreen_visible_frame(
   int screen_index,
 );
 
-/// Hides the window without destroying it ([NSWindow orderOut:] — the
-/// window stays alive and re-usable via cw_nswindow_order_front).
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
 external void cw_nswindow_order_out(
   ffi.Pointer<ffi.Void> ns_window,
@@ -321,6 +319,11 @@ external int cw_drag_overlay_left_mouse_down();
 @ffi.Native<ffi.Int32 Function()>()
 external int cw_drag_overlay_right_mouse_down();
 
+/// Global Escape key state (CGEventSource — mirrors the mouse-button probes
+/// above for drag gestures the main window no longer owns).
+@ffi.Native<ffi.Int32 Function()>()
+external int cw_drag_overlay_escape_down();
+
 @ffi.Native<ffi.Void Function()>()
 external void cw_hooks_init();
 
@@ -369,6 +372,95 @@ external void cw_hooks_dispose();
 @ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
 external void cw_hooks_emit_window_moved(
   ffi.Pointer<ffi.Void> ns_window,
+);
+
+/// macOS 26+: 1 when the public NSGlassEffectView class exists at runtime.
+@ffi.Native<ffi.Int32 Function()>()
+external int cw_nswindow_has_liquid_glass();
+
+/// macOS 26+: whole-window Liquid Glass (glass becomes the contentView with
+/// the Flutter content embedded). [style]: 0 Regular / 1 Clear. No-op below 26.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
+external void cw_nswindow_set_glass_backdrop(
+  ffi.Pointer<ffi.Void> ns_window,
+  int style,
+);
+
+/// macOS 26+: inset Liquid Glass panel behind the content at window-local
+/// LOGICAL px (top-left origin), rounded with [corner_radius]; repeated calls
+/// replace the previous panel (one glass surface per window). No-op below 26.
+@ffi.Native<
+  ffi.Void Function(
+    ffi.Pointer<ffi.Void>,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Double,
+    ffi.Int32,
+  )
+>()
+external void cw_nswindow_set_glass_panel(
+  ffi.Pointer<ffi.Void> ns_window,
+  double x,
+  double y,
+  double w,
+  double h,
+  double corner_radius,
+  int style,
+);
+
+/// Per-region click-through: the window stays interactive ONLY inside the
+/// given WINDOW-LOCAL LOGICAL rects (flat x,y,w,h quads; count quads);
+/// NULL/0 makes the whole window click-through. No-op below macOS 26.
+@ffi.Native<
+  ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Double>, ffi.Size)
+>()
+external void cw_nswindow_set_click_through_rects(
+  ffi.Pointer<ffi.Void> ns_window,
+  ffi.Pointer<ffi.Double> rects,
+  int rect_count,
+);
+
+/// One-shot NATIVE setup for the middle notification window: fixed-size,
+/// centered Flutter content (window frame can animate without the engine's
+/// resize synchronizer), Clear/Regular Liquid Glass panel (autoresizes with
+/// the window), full click-through, non-draggable. Call once at creation.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double, ffi.Int32)>()
+external void cw_nswindow_setup_middle_window(
+  ffi.Pointer<ffi.Void> ns_window,
+  double corner_radius,
+  int style,
+);
+
+/// Scales the middle notification's rendered content via the FlutterView's
+/// LAYER transform (GPU compositing — no engine layout / resize sync).
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
+external void cw_nswindow_set_content_scale(
+  ffi.Pointer<ffi.Void> ns_window,
+  double scale,
+);
+
+/// [NSWindow movableByWindowBackground]: NO keeps overlay windows
+/// non-draggable so clicks reach the Flutter content.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
+external void cw_nswindow_set_movable_by_background(
+  ffi.Pointer<ffi.Void> ns_window,
+  bool movable,
+);
+
+/// Re-evaluates per-region click-through now (cursor position -> rect check ->
+/// ignoresMouseEvents toggle). Called periodically; no event dependency.
+@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
+external void cw_nswindow_eval_click_through(
+  ffi.Pointer<ffi.Void> ns_window,
+);
+
+/// FULL frame (includes menu bar / dock) of [NSScreen screens][index], in the
+/// same flipped top-left global-union space as [cw_nsscreen_visible_frame].
+@ffi.Native<cw_rect_t Function(ffi.Int32)>()
+external cw_rect_t cw_nsscreen_full_frame(
+  int screen_index,
 );
 
 final class cw_rect_t extends ffi.Struct {
@@ -469,95 +561,3 @@ final class cw_delegate_config_t extends ffi.Struct {
   >
   on_window_will_use_standard_frame;
 }
-
-/// macOS 26+: 1 when the public NSGlassEffectView exists at runtime.
-@ffi.Native<ffi.Int32 Function()>()
-external int cw_nswindow_has_liquid_glass();
-
-/// macOS 26+: whole-window Liquid Glass (glass = contentView, content
-/// embedded). style: 0 Regular / 1 Clear. No-op below 26.
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Int32)>()
-external void cw_nswindow_set_glass_backdrop(
-  ffi.Pointer<ffi.Void> ns_window,
-  int style,
-);
-
-/// macOS 26+: inset Liquid Glass panel behind the content (window-local
-/// LOGICAL px, top-left origin). style: 0 Regular / 1 Clear. No-op below 26.
-@ffi.Native<
-  ffi.Void Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Double,
-    ffi.Int32,
-  )
->()
-external void cw_nswindow_set_glass_panel(
-  ffi.Pointer<ffi.Void> ns_window,
-  double x,
-  double y,
-  double w,
-  double h,
-  double corner_radius,
-  int style,
-);
-
-/// Per-region click-through: interactive only inside the given window-local
-/// LOGICAL rects (flat x,y,w,h doubles; rect_count quads). 0/NULL = fully
-/// click-through.
-@ffi.Native<
-  ffi.Void Function(
-    ffi.Pointer<ffi.Void>,
-    ffi.Pointer<ffi.Double>,
-    ffi.Size,
-  )
->()
-external void cw_nswindow_set_click_through_rects(
-  ffi.Pointer<ffi.Void> ns_window,
-  ffi.Pointer<ffi.Double> rects,
-  int rect_count,
-);
-
-/// One-shot setup for the middle notification window (fixed-size centered
-/// content + glass panel + full click-through + non-draggable).
-@ffi.Native<
-  ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double, ffi.Int32)
->()
-external void cw_nswindow_setup_middle_window(
-  ffi.Pointer<ffi.Void> ns_window,
-  double corner_radius,
-  int style,
-);
-
-/// Scales the middle notification's rendered content via the FlutterView's
-/// layer transform (GPU compositing) — the window-size animation companion.
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Double)>()
-external void cw_nswindow_set_content_scale(
-  ffi.Pointer<ffi.Void> ns_window,
-  double scale,
-);
-
-/// NSWindow movableByWindowBackground (NO keeps overlay windows non-draggable
-/// so clicks reach Flutter content).
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Bool)>()
-external void cw_nswindow_set_movable_by_background(
-  ffi.Pointer<ffi.Void> ns_window,
-  bool movable,
-);
-
-/// Re-evaluates per-region click-through right now (cursor position -> rect
-/// check -> setIgnoresMouseEvents toggle). No event delivery dependency.
-@ffi.Native<ffi.Void Function(ffi.Pointer<ffi.Void>)>()
-external void cw_nswindow_eval_click_through(
-  ffi.Pointer<ffi.Void> ns_window,
-);
-
-/// FULL frame (includes menu bar / dock) of screen [index], flipped top-left
-/// global-union space.
-@ffi.Native<cw_rect_t Function(ffi.Int32)>()
-external cw_rect_t cw_nsscreen_full_frame(
-  int screen_index,
-);
