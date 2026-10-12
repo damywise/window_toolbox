@@ -58,8 +58,13 @@
 
 static DWORD64 g_flutter_dll_base = 0;
 static DWORD64 g_flutter_dll_end = 0;
-static int g_exception_handler_active = 0;
-static int g_exceptions_caught = 0;
+// Exception-continuation scope. Detection only queues recovery; the host opens
+// this window immediately before it destroys the engine and closes it as soon
+// as destruction returns. Atomic because teardown faults arrive on
+// engine-owned threads, not necessarily the platform thread.
+static volatile LONG g_teardown_active = 0;
+static volatile LONG g_exceptions_caught = 0;
+static int g_veh_registered = 0;
 
 // ---------------------------------------------------------------------------
 // Diagnostics: identify the module owning an AV that lands OUTSIDE
@@ -110,7 +115,7 @@ static void LogAddressModule(const wchar_t* tag, DWORD64 addr) {
 }
 
 static LONG CALLBACK GpuRecoveryExceptionHandler(PEXCEPTION_POINTERS info) {
-  if (!g_exception_handler_active)
+  if (InterlockedCompareExchange(&g_teardown_active, 0, 0) == 0)
     return EXCEPTION_CONTINUE_SEARCH;
   if (info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
     return EXCEPTION_CONTINUE_SEARCH;
@@ -139,10 +144,9 @@ static LONG CALLBACK GpuRecoveryExceptionHandler(PEXCEPTION_POINTERS info) {
     return EXCEPTION_CONTINUE_SEARCH;
   }
 
-  g_exceptions_caught++;
-  if (g_exceptions_caught <= 5 || g_exceptions_caught % 100 == 0) {
-    GPU_LOGF("Caught AV #%d at RIP=flutter_windows.dll+0x%llx",
-             g_exceptions_caught,
+  LONG const caught = InterlockedIncrement(&g_exceptions_caught);
+  if (caught <= 5 || caught % 100 == 0) {
+    GPU_LOGF("Caught AV #%ld at RIP=flutter_windows.dll+0x%llx", caught,
              (unsigned long long)(rip - g_flutter_dll_base));
   }
 
@@ -262,8 +266,10 @@ static D3D11CreateDeviceFn GetD3D11CreateDevice(void) {
 // Sentinel device + watchdog message-only window
 // ---------------------------------------------------------------------------
 // The module owns a message-only window so the watchdog survives app-window
-// churn. The timer polls the sentinel D3D11 device; on device loss it arms
-// the VEH and posts `recovery_msg` to the host-provided `target_hwnd`.
+// churn. The timer polls the sentinel D3D11 device; on device loss it posts
+// `recovery_msg` to the host-provided `target_hwnd` — detection does not arm
+// exception continuation; the host opens that window around engine teardown
+// via GpuRecoveryBeginTeardown().
 
 GPU_RECOVERY_EXPORT BOOL GpuRecoveryIsDeviceLost(void);
 
@@ -280,28 +286,50 @@ static IDXGIAdapter* g_adapter = NULL;
 static ID3D11Device* g_sentinel_device = NULL;
 static int g_recovery_requested = 0;
 
-static void ArmWatchdog(void) {
+// LUID of the last adapter passed to GpuRecoverySetAdapter, so
+// GpuRecoveryWaitForGpuReady can verify Flutter's adapter instead of
+// assuming it sits at DXGI index 0.
+static LUID g_adapter_luid;
+static BOOL g_has_adapter_luid = FALSE;
+
+// Returns whether the 2 s timer is actually live — callers propagate this
+// so a NULL window or failed SetTimer is never reported as armed.
+static BOOL ArmWatchdog(void) {
   g_recovery_requested = 0;
-  if (g_host_hwnd) {
-    SetTimer(g_host_hwnd, kGpuWatchdogTimerId, kWatchdogIntervalMs, NULL);
-    GPU_LOG("Watchdog (re)armed (2 s interval)");
+  if (!g_host_hwnd) {
+    GPU_LOG("Watchdog not armed — no host window");
+    return FALSE;
   }
+  if (!SetTimer(g_host_hwnd, kGpuWatchdogTimerId, kWatchdogIntervalMs, NULL)) {
+    GPU_LOGF("Watchdog SetTimer failed (%lu)", GetLastError());
+    return FALSE;
+  }
+  GPU_LOG("Watchdog (re)armed (2 s interval)");
+  return TRUE;
 }
 
 static LRESULT CALLBACK GpuRecoveryWndProc(HWND hwnd, UINT message,
                                            WPARAM wparam, LPARAM lparam) {
   if (message == WM_TIMER && wparam == kGpuWatchdogTimerId) {
     if (GpuRecoveryIsDeviceLost() && !g_recovery_requested) {
-      GPU_LOG("Device loss detected — activating exception handler");
+      GPU_LOG("Device loss detected — queuing recovery (continuation NOT armed)");
       g_recovery_requested = 1;
-      g_exception_handler_active = 1;
-      g_exceptions_caught = 0;
       KillTimer(hwnd, kGpuWatchdogTimerId);
 
-      // Tell the host window to recreate the engine.
+      // Tell the host window to recreate the engine. A failed post with
+      // the timer killed would leave no recovery queued, so restore the
+      // retryable state and let the next tick re-post.
       GPU_LOG("Posting recovery message");
-      if (g_target_hwnd)
-        PostMessage(g_target_hwnd, g_recovery_msg, 0, 0);
+      if (g_target_hwnd == NULL ||
+          !PostMessage(g_target_hwnd, g_recovery_msg, 0, 0)) {
+        if (g_target_hwnd) {
+          GPU_LOGF("Recovery PostMessage failed (%lu)", GetLastError());
+        } else {
+          GPU_LOG("Recovery PostMessage failed — no target window");
+        }
+        g_recovery_requested = 0;
+        ArmWatchdog();
+      }
     }
     return 0;
   }
@@ -312,14 +340,17 @@ static LRESULT CALLBACK GpuRecoveryWndProc(HWND hwnd, UINT message,
 // Public API
 // ---------------------------------------------------------------------------
 
-GPU_RECOVERY_EXPORT void GpuRecoveryInstall(HWND target_hwnd,
+GPU_RECOVERY_EXPORT BOOL GpuRecoveryInstall(HWND target_hwnd,
                                             UINT recovery_msg) {
-  static int veh_installed = 0;
+  BOOL ok = TRUE;
 
-  // Register the VEH exactly once; it stays a no-op until
-  // g_exception_handler_active is set on device loss.
-  if (!veh_installed) {
-    veh_installed = 1;
+  // Resolve the flutter_windows.dll image range and register the VEH.
+  // Both are retried on every call while unresolved — the DLL may load
+  // after the first Install, and a failed registration must not wedge the
+  // watchdog. AddVectoredExceptionHandler runs at most once (on success);
+  // the handler stays inert until the host opens the teardown window with
+  // GpuRecoveryBeginTeardown().
+  if (g_flutter_dll_base == 0) {
     HMODULE hmod = GetModuleHandleA("flutter_windows.dll");
     if (hmod) {
       MODULEINFO mi;
@@ -330,17 +361,30 @@ GPU_RECOVERY_EXPORT void GpuRecoveryInstall(HWND target_hwnd,
                  (unsigned long long)g_flutter_dll_base,
                  (unsigned long long)g_flutter_dll_end,
                  (unsigned int)mi.SizeOfImage);
+      } else {
+        GPU_LOGF("GetModuleInformation(flutter_windows.dll) failed (%lu)",
+                 GetLastError());
+        ok = FALSE;
       }
     } else {
       GPU_LOG("flutter_windows.dll not loaded yet — VEH will be inert");
+      ok = FALSE;
     }
-    AddVectoredExceptionHandler(1, GpuRecoveryExceptionHandler);
+  }
+  if (!g_veh_registered) {
+    if (AddVectoredExceptionHandler(1, GpuRecoveryExceptionHandler)) {
+      g_veh_registered = 1;
+    } else {
+      GPU_LOGF("AddVectoredExceptionHandler failed (%lu)", GetLastError());
+      ok = FALSE;
+    }
   }
 
   g_target_hwnd = target_hwnd;
   g_recovery_msg = recovery_msg;
 
-  // Create the module-owned message-only host window (once).
+  // Create the module-owned message-only host window (once). A failed
+  // register or create leaves g_host_hwnd NULL so the next call retries.
   if (!g_host_hwnd) {
     HINSTANCE hinstance = GetModuleHandleW(NULL);
     if (!g_class_registered) {
@@ -349,25 +393,36 @@ GPU_RECOVERY_EXPORT void GpuRecoveryInstall(HWND target_hwnd,
       wc.lpfnWndProc = GpuRecoveryWndProc;
       wc.hInstance = hinstance;
       wc.lpszClassName = kHostClassName;
-      if (!RegisterClassW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+      if (RegisterClassW(&wc) ||
+          GetLastError() == ERROR_CLASS_ALREADY_EXISTS) {
+        g_class_registered = 1;
+      } else {
         GPU_LOGF("RegisterClass failed (%lu)", GetLastError());
-        return;
+        ok = FALSE;
       }
-      g_class_registered = 1;
     }
-    g_host_hwnd = CreateWindowExW(0, kHostClassName, L"", 0, 0, 0, 0, 0,
-                                  HWND_MESSAGE, NULL, hinstance, NULL);
-    if (!g_host_hwnd) {
-      GPU_LOGF("Message window creation failed (%lu)", GetLastError());
-      return;
+    if (g_class_registered) {
+      g_host_hwnd = CreateWindowExW(0, kHostClassName, L"", 0, 0, 0, 0, 0,
+                                    HWND_MESSAGE, NULL, hinstance, NULL);
+      if (!g_host_hwnd) {
+        GPU_LOGF("Message window creation failed (%lu)", GetLastError());
+        ok = FALSE;
+      } else {
+        GPU_LOG("Message-only watchdog window created");
+      }
     }
-    GPU_LOG("Message-only watchdog window created");
   }
 
-  ArmWatchdog();
+  if (!ArmWatchdog())
+    ok = FALSE;
+  return ok;
 }
 
-GPU_RECOVERY_EXPORT void GpuRecoverySetAdapter(void* adapter) {
+// Ownership: the module takes ownership of the passed IDXGIAdapter* on ALL
+// paths, including failures — it is released on the next
+// GpuRecoverySetAdapter call and in GpuRecoveryShutdown(). Returns TRUE only
+// when a sentinel device was created and the watchdog timer is live.
+GPU_RECOVERY_EXPORT BOOL GpuRecoverySetAdapter(void* adapter) {
   // Release the previous sentinel device and adapter.
   if (g_sentinel_device) {
     g_sentinel_device->lpVtbl->Release(g_sentinel_device);
@@ -377,31 +432,47 @@ GPU_RECOVERY_EXPORT void GpuRecoverySetAdapter(void* adapter) {
     g_adapter->lpVtbl->Release(g_adapter);
     g_adapter = NULL;
   }
+  g_has_adapter_luid = FALSE;
 
   g_adapter = (IDXGIAdapter*)adapter;
   if (!g_adapter) {
     GPU_LOG("SetAdapter(NULL) — sentinel disabled");
-    return;
+    return FALSE;
+  }
+
+  // Remember the adapter LUID so WaitForGpuReady can re-find this exact
+  // adapter rather than assuming DXGI index 0.
+  {
+    DXGI_ADAPTER_DESC adapter_desc;
+    HRESULT desc_hr = g_adapter->lpVtbl->GetDesc(g_adapter, &adapter_desc);
+    if (SUCCEEDED(desc_hr)) {
+      g_adapter_luid = adapter_desc.AdapterLuid;
+      g_has_adapter_luid = TRUE;
+    } else {
+      GPU_LOGF("Adapter GetDesc failed (0x%lx) — LUID unknown", desc_hr);
+    }
   }
 
   D3D11CreateDeviceFn create_device = GetD3D11CreateDevice();
   if (!create_device) {
     GPU_LOG("D3D11CreateDevice unavailable — sentinel disabled");
-    return;
+    ArmWatchdog();
+    return FALSE;
   }
 
   D3D_FEATURE_LEVEL fl;
   HRESULT hr = create_device(g_adapter, D3D_DRIVER_TYPE_UNKNOWN, NULL, 0,
                              NULL, 0, D3D11_SDK_VERSION, &g_sentinel_device,
                              &fl, NULL);
-  if (SUCCEEDED(hr)) {
-    GPU_LOG("Sentinel D3D device created");
-  } else {
+  if (FAILED(hr)) {
     GPU_LOGF("Sentinel D3D11CreateDevice failed (0x%lx)", hr);
+    ArmWatchdog();
+    return FALSE;
   }
+  GPU_LOG("Sentinel D3D device created");
 
   // (Re)arm the watchdog against the fresh adapter.
-  ArmWatchdog();
+  return ArmWatchdog();
 }
 
 GPU_RECOVERY_EXPORT BOOL GpuRecoveryIsDeviceLost(void) {
@@ -410,13 +481,48 @@ GPU_RECOVERY_EXPORT BOOL GpuRecoveryIsDeviceLost(void) {
              g_sentinel_device) != S_OK;
 }
 
+// Opens the exception-continuation window. Call it immediately before
+// destroying the engine and close it with GpuRecoveryEndTeardown() as soon
+// as destruction returns. Returns TRUE only when a teardown AV inside
+// flutter_windows.dll would actually be continued — i.e. the VEH is registered
+// and its image range resolved; FALSE means teardown is about to run with no
+// continuation and an unexpected AV will crash the process normally.
+GPU_RECOVERY_EXPORT BOOL GpuRecoveryBeginTeardown(void) {
+  if (!g_veh_registered || g_flutter_dll_base == 0) {
+    GPU_LOG("BeginTeardown: continuation unavailable (VEH unregistered or "
+            "flutter_windows.dll range unresolved)");
+    return FALSE;
+  }
+  LONG const previous = InterlockedExchange(&g_teardown_active, 1);
+  InterlockedExchange(&g_exceptions_caught, 0);
+  if (previous != 0)
+    GPU_LOG("BeginTeardown: window already open — re-opened");
+  GPU_LOG("BeginTeardown: exception-continuation window OPEN");
+  return TRUE;
+}
+
+// Closes the window and reports how many AVs were continued inside it. Always
+// safe to call; the window is disarmed even if it was not open.
+GPU_RECOVERY_EXPORT void GpuRecoveryEndTeardown(void) {
+  LONG const caught = InterlockedExchange(&g_exceptions_caught, 0);
+  LONG const was_active = InterlockedExchange(&g_teardown_active, 0);
+  if (was_active)
+    GPU_LOGF("EndTeardown: window CLOSED after %ld continued AV(s)", caught);
+  else
+    GPU_LOG("EndTeardown: window CLOSED (was not open)");
+}
+
 GPU_RECOVERY_EXPORT BOOL GpuRecoveryWaitForGpuReady(DWORD timeout_ms) {
-  // Poll until a fresh test device on adapter 0 is healthy, or timeout.
+  // Poll until a fresh test device on the Flutter adapter is healthy, or
+  // timeout. When the adapter LUID is known (recorded by
+  // GpuRecoverySetAdapter) enumerate adapters and match on it; otherwise
+  // fall back to index 0, which may not be Flutter's GPU — the log says so.
   const DWORD kPollMs = 200;
   const DWORD start = GetTickCount();
   int attempt = 0;
 
   for (;;) {
+    IDXGIFactory1* factory = NULL;
     attempt++;
     Sleep(kPollMs);
 
@@ -427,37 +533,56 @@ GPU_RECOVERY_EXPORT BOOL GpuRecoveryWaitForGpuReady(DWORD timeout_ms) {
       return FALSE;
     }
 
-    IDXGIFactory1* factory = NULL;
-    if (FAILED(create_factory(&IID_IDXGIFactory1, (void**)&factory)))
-      goto check_timeout;
+    if (SUCCEEDED(create_factory(&IID_IDXGIFactory1, (void**)&factory))) {
+      UINT index;
+      for (index = 0;; index++) {
+        IDXGIAdapter1* adapter = NULL;
+        BOOL matched = FALSE;
+        ID3D11Device* test_device = NULL;
+        if (FAILED(factory->lpVtbl->EnumAdapters1(factory, index, &adapter)))
+          break;
 
-    IDXGIAdapter1* adapter = NULL;
-    if (FAILED(factory->lpVtbl->EnumAdapters1(factory, 0, &adapter))) {
+        if (g_has_adapter_luid) {
+          DXGI_ADAPTER_DESC1 desc1;
+          if (SUCCEEDED(adapter->lpVtbl->GetDesc1(adapter, &desc1)) &&
+              desc1.AdapterLuid.LowPart == g_adapter_luid.LowPart &&
+              desc1.AdapterLuid.HighPart == g_adapter_luid.HighPart)
+            matched = TRUE;
+        } else {
+          matched = (index == 0);
+        }
+
+        if (matched) {
+          D3D_FEATURE_LEVEL level;
+          HRESULT hr = create_device((IDXGIAdapter*)adapter,
+                                     D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, NULL,
+                                     0, D3D11_SDK_VERSION, &test_device,
+                                     &level, NULL);
+          if (SUCCEEDED(hr) &&
+              test_device->lpVtbl->GetDeviceRemovedReason(test_device) ==
+                  S_OK) {
+            if (g_has_adapter_luid) {
+              GPU_LOGF("GPU ready after %u ms",
+                       (unsigned int)(GetTickCount() - start));
+            } else {
+              GPU_LOGF("Adapter 0 verified after %u ms (Flutter adapter "
+                       "unknown)",
+                       (unsigned int)(GetTickCount() - start));
+            }
+            test_device->lpVtbl->Release(test_device);
+            adapter->lpVtbl->Release(adapter);
+            factory->lpVtbl->Release(factory);
+            return TRUE;
+          }
+          if (test_device) test_device->lpVtbl->Release(test_device);
+          adapter->lpVtbl->Release(adapter);
+          break;  // only the matching adapter is tested
+        }
+        adapter->lpVtbl->Release(adapter);
+      }
       factory->lpVtbl->Release(factory);
-      goto check_timeout;
     }
 
-    ID3D11Device* test_device = NULL;
-    D3D_FEATURE_LEVEL level;
-    HRESULT hr = create_device((IDXGIAdapter*)adapter,
-                               D3D_DRIVER_TYPE_UNKNOWN, NULL, 0, NULL, 0,
-                               D3D11_SDK_VERSION, &test_device, &level, NULL);
-
-    if (SUCCEEDED(hr) &&
-        test_device->lpVtbl->GetDeviceRemovedReason(test_device) == S_OK) {
-      GPU_LOGF("GPU ready after %u ms",
-               (unsigned int)(GetTickCount() - start));
-      test_device->lpVtbl->Release(test_device);
-      adapter->lpVtbl->Release(adapter);
-      factory->lpVtbl->Release(factory);
-      return TRUE;
-    }
-
-    if (test_device) test_device->lpVtbl->Release(test_device);
-    adapter->lpVtbl->Release(adapter);
-    factory->lpVtbl->Release(factory);
-
-  check_timeout:
     if (GetTickCount() - start >= timeout_ms) {
       GPU_LOGF("GPU not ready after %lu ms — giving up", timeout_ms);
       return FALSE;
@@ -480,6 +605,8 @@ GPU_RECOVERY_EXPORT void GpuRecoveryShutdown(void) {
     g_adapter = NULL;
   }
   g_recovery_requested = 0;
-  g_exception_handler_active = 0;
+  InterlockedExchange(&g_teardown_active, 0);
+  InterlockedExchange(&g_exceptions_caught, 0);
+  g_has_adapter_luid = FALSE;
   GPU_LOG("Shutdown");
 }

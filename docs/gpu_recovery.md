@@ -46,12 +46,15 @@ Three cooperating pieces, all in `src/windows.c`:
   `WindowToolboxGpuRecoveryHost`, parent `HWND_MESSAGE`) with a 2 s
   `SetTimer`. It is deliberately *not* latched to an app window, because
   tear-off/multi-window apps destroy their top-level HWNDs constantly. On
-  loss it arms the VEH flag, kills its own timer, and posts the host-chosen
-  message (`target_hwnd` + `recovery_msg` from `GpuRecoveryInstall`). It runs
+  loss it kills its own timer and posts the host-chosen message
+  (`target_hwnd` + `recovery_msg` from `GpuRecoveryInstall`). It runs
   on the thread that called `GpuRecoveryInstall` — call it on the platform
   thread.
-- **VEH** — `AddVectoredExceptionHandler(1, ...)`. While the recovery flag is
-  active it catches `EXCEPTION_ACCESS_VIOLATION` whose RIP is inside
+- **VEH** — `AddVectoredExceptionHandler(1, ...)`. The handler is installed
+  once at `GpuRecoveryInstall` but stays inert: it is active only between
+  `GpuRecoveryBeginTeardown()` and `GpuRecoveryEndTeardown()`, which the
+  host calls immediately around engine destruction — detection does not arm
+  it. While that window is open it catches `EXCEPTION_ACCESS_VIOLATION` whose RIP is inside
   `flutter_windows.dll` (range resolved via `GetModuleInformation` at Install
   time), decodes the x64 instruction length (legacy prefixes / REX / opcode /
   ModRM / SIB / displacement / immediate, capped at 15 bytes), skips the
@@ -80,12 +83,15 @@ host (platform thread)                    module watchdog (same thread, timer)
         │    └─ sentinel D3D11 device              │
         │                              WM_TIMER (2 s)
         │                                  │ GetDeviceRemovedReason() != S_OK
-        │                                  ├─ arm VEH flag, KillTimer
+        │                                  ├─ KillTimer
         │                                  └─ PostMessage(host, recovery_msg)
         ├─ recovery_msg handler:                   │
         │    write marker file                     │
         │    stop native worker threads            │
+        │    GpuRecoveryBeginTeardown()            │
         │    destroy engine  ── AVs in flutter_windows.dll skipped by VEH
+        │                      (only inside this begin/end window)
+        │    GpuRecoveryEndTeardown()              │
         │    GpuRecoveryWaitForGpuReady(10000)     │
         │    create + register + run fresh engine  │
         └─ GpuRecoverySetAdapter(new adapter) ────►│ watchdog re-arms
@@ -97,11 +103,13 @@ All exports are `extern "C"`.
 
 | Function | Purpose |
 |---|---|
-| `GpuRecoveryInstall(HWND target_hwnd, UINT recovery_msg)` | Registers the VEH (once), creates the message-only watchdog window (once), arms the 2 s timer. Call on the platform thread. |
-| `GpuRecoverySetAdapter(void* adapter)` | `IDXGIAdapter*`; module takes ownership. Releases the previous sentinel/adapter, creates a fresh sentinel on the new adapter, re-arms the watchdog. Call after Install **and again after every engine recreation**. |
+| `GpuRecoveryInstall(HWND target_hwnd, UINT recovery_msg)` | Registers the VEH, creates the message-only watchdog window, arms the 2 s timer. Returns `BOOL`: `TRUE` only when the `flutter_windows.dll` image range is resolved, the VEH is registered, the watchdog window exists, and the timer is live. Image-range resolution and VEH registration are retried on every call while unresolved (e.g. when the DLL loads after the first call); class/window creation is also retried after a failure. Call on the platform thread. |
+| `GpuRecoverySetAdapter(void* adapter)` | `IDXGIAdapter*`; the module takes ownership on **all** outcomes, including failures — the adapter is released on the next `SetAdapter` call and in `GpuRecoveryShutdown`, so the caller must not release it. Releases the previous sentinel/adapter, creates a fresh sentinel on the new adapter, re-arms the watchdog. Returns `BOOL`: `TRUE` only when the sentinel was created **and** the watchdog timer is live. `SetAdapter(NULL)` releases the previous sentinel/adapter, disables the sentinel, and returns `FALSE`. Call after Install **and again after every engine recreation**. |
 | `GpuRecoveryIsDeviceLost(void)` | `TRUE` if the sentinel's `GetDeviceRemovedReason() != S_OK`. `FALSE` when no sentinel exists. |
-| `GpuRecoveryWaitForGpuReady(DWORD timeout_ms)` | Polls every 200 ms: creates a fresh test device on adapter 0 via `CreateDXGIFactory1` → `EnumAdapters1(0)` → `D3D11CreateDevice` and checks `GetDeviceRemovedReason`. Returns `TRUE` once healthy, `FALSE` on timeout. |
-| `GpuRecoveryShutdown(void)` | Kills the timer, destroys the hidden window, releases sentinel and adapter, clears the recovery/VEH flags. |
+| `GpuRecoveryBeginTeardown(void)` | Opens the exception-continuation window. Call it immediately before destroying the engine and close it with `GpuRecoveryEndTeardown()` as soon as destruction returns. Returns `TRUE` only when a teardown AV inside `flutter_windows.dll` would actually be continued — i.e. the VEH is registered **and** its image range is resolved; `FALSE` means teardown is about to run with no continuation and an unexpected AV will crash the process normally. Nothing outside the begin/end window is covered. |
+| `GpuRecoveryEndTeardown(void)` | Closes the continuation window and logs how many AVs were continued inside it. Always safe to call; the window is disarmed even if it was not open. |
+| `GpuRecoveryWaitForGpuReady(DWORD timeout_ms)` | Polls every 200 ms: enumerates adapters via `CreateDXGIFactory1` → `EnumAdapters1` and creates a test device (`D3D11CreateDevice`) **only on the adapter whose `AdapterLuid` matches** the adapter last passed to `GpuRecoverySetAdapter`, then checks `GetDeviceRemovedReason`. When the LUID is unknown (adapter `GetDesc` failed or no adapter was ever set) it falls back to index 0 — which may not be Flutter's GPU, and the log says so. Returns `TRUE` once the tested device is healthy, `FALSE` on timeout. |
+| `GpuRecoveryShutdown(void)` | Kills the timer, destroys the hidden window, releases sentinel and adapter, clears the recovery flag and the teardown window (disarms continuation and resets its counter). |
 
 ## Host integration contract
 
@@ -113,12 +121,17 @@ The reference implementation is captionify's `windows/runner/main.cpp`.
    `WM_APP + 0x5250` — then query the engine adapter
    (`FlutterEngine::GetGraphicsAdapter` →
    `FlutterDesktopEngineGetGraphicsAdapter`) and `GpuRecoverySetAdapter`.
-   **`GetGraphicsAdapter` can fail before the engine has any view** — retry
-   on a timer until it succeeds, otherwise the watchdog arms with no
-   sentinel and detects nothing.
+   **Treat the watchdog as armed only when both calls return `TRUE`** —
+   `GpuRecoveryInstall` failing leaves the VEH/timer incomplete and
+   `GpuRecoverySetAdapter` failing leaves no live sentinel. Retry **both** on
+   a timer while uninstalled/unarmed. `GetGraphicsAdapter` can also fail
+   before the engine has any view — keep retrying until it succeeds,
+   otherwise the watchdog arms with no sentinel and detects nothing.
 3. On the recovery message: write a marker file → stop/quiesce any native
-   worker threads that touch Flutter (see pitfall 2) → destroy the engine
-   (VEH is now active and eats the ANGLE teardown AVs) →
+   worker threads that touch Flutter (see pitfall 2) → call
+   `GpuRecoveryBeginTeardown()` immediately before destroying the engine and
+   `GpuRecoveryEndTeardown()` as soon as destruction returns (a `FALSE`
+   return means teardown runs without continuation — log it) →
    `GpuRecoveryWaitForGpuReady(10000)` → create + register + run a fresh
    engine → `GpuRecoverySetAdapter` again.
 4. The Dart VM restarts as part of engine destruction: any Dart-side
